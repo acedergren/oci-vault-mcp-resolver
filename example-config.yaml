@@ -1,0 +1,57 @@
+# Example MCP Configuration with OCI Vault References
+#
+# This example shows how to use oci-vault:// URLs in your MCP config.
+# Replace the OCIDs and secret names with your actual values.
+
+servers:
+  # Filesystem access
+  filesystem:
+    config:
+      allowedDirectories:
+        - /home/alex/projects
+
+  # Git operations
+  git:
+    config:
+      repoPath: /home/alex/projects
+      # Example: GitHub personal access token from vault
+      # GITHUB_TOKEN: oci-vault://ocid1.compartment.oc1..xxx/github-pat
+
+  # Prometheus metrics
+  prometheus:
+    config:
+      # Example: Prometheus URL (could be public)
+      PROMETHEUS_URL: http://localhost:9090
+      # Example: API key from vault
+      # API_KEY: oci-vault://ocid1.compartment.oc1..xxx/prometheus-api-key
+
+  # kubectl - Kubernetes operations
+  kubectl-mcp-server:
+    config:
+      # Example: Kubeconfig token from vault
+      # KUBE_TOKEN: oci-vault://ocid1.vaultsecret.oc1.iad.xxx
+
+  # Custom database server (example)
+  # database:
+  #   config:
+  #     DB_HOST: postgres.example.com
+  #     DB_PORT: 5432
+  #     DB_NAME: myapp
+  #     DB_USER: admin
+  #     # Password from vault
+  #     DB_PASSWORD: oci-vault://ocid1.compartment.oc1..xxx/db-password
+
+  # Custom API service (example)
+  # external-api:
+  #   config:
+  #     API_ENDPOINT: https://api.example.com/v1
+  #     # API key from vault
+  #     API_KEY: oci-vault://ocid1.vault.oc1.iad.xxx/api-key
+  #     # Webhook secret from vault
+  #     WEBHOOK_SECRET: oci-vault://ocid1.vaultsecret.oc1.iad.yyy
+
+# Notes:
+# 1. Vault references are resolved at runtime by the oci_vault_resolver.py script
+# 2. Secrets are cached locally with configurable TTL (default: 1 hour)
+# 3. If vault is unavailable, cached values are used with a warning
+# 4. Cache is stored in ~/.cache/oci-vault-mcp/ with 0600 permissions

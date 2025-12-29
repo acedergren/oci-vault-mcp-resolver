@@ -1,0 +1,33 @@
+# Test MCP Configuration with OCI Vault Secrets
+# This demonstrates both URL formats working together
+
+servers:
+  # Filesystem access (no secrets needed)
+  filesystem:
+    config:
+      allowedDirectories:
+        - /home/alex/projects
+
+  # Git operations (example with secret)
+  git:
+    config:
+      repoPath: /home/alex/projects
+      # Example: Use compartment + name format for portability
+      # GITHUB_TOKEN: oci-vault://ocid1.compartment.oc1..aaaaaaaarekfofhmfup6d33agbnicuop2waas3ssdwdc7qjgencirdgvl3iq/github-pat
+
+  # Prometheus (with test secret by OCID)
+  prometheus:
+    config:
+      PROMETHEUS_URL: http://localhost:9090
+      # Using direct OCID format (faster, less portable)
+      TEST_SECRET: oci-vault://ocid1.vaultsecret.oc1.eu-frankfurt-1.amaaaaaahhxc6pyanshr7dq5klnc4mld6otcwzz3ijkkbbrwamk6kx7vb7wq
+
+  # Custom service (with test secret by compartment + name)
+  test-service:
+    config:
+      SERVICE_URL: https://api.example.com
+      # Using compartment + name format (portable, self-documenting)
+      API_KEY: oci-vault://ocid1.compartment.oc1..aaaaaaaarekfofhmfup6d33agbnicuop2waas3ssdwdc7qjgencirdgvl3iq/mcp-test-secret
+      # Regular non-secret values
+      TIMEOUT: 30
+      RETRY_COUNT: 3
