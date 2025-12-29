@@ -26,6 +26,7 @@ CACHE_TTL=3600  # 1 hour
 VERBOSE=false
 DRY_RUN=false
 START_GATEWAY=false
+INSTANCE_PRINCIPALS=false
 
 usage() {
     cat << EOF
@@ -34,15 +35,19 @@ Usage: $0 [OPTIONS]
 Resolve OCI Vault secrets in Docker MCP Gateway configuration and optionally start the gateway.
 
 OPTIONS:
-    --ttl SECONDS       Cache TTL in seconds (default: 3600)
-    --verbose           Enable verbose logging
-    --dry-run           Show resolved config without applying
-    --start             Start the gateway after applying config
-    --help              Show this help message
+    --ttl SECONDS          Cache TTL in seconds (default: 3600)
+    --verbose              Enable verbose logging
+    --dry-run              Show resolved config without applying
+    --start                Start the gateway after applying config
+    --instance-principals  Use instance principals (for OCI VMs)
+    --help                 Show this help message
 
 EXAMPLES:
-    # Resolve secrets and apply to gateway
+    # Basic usage with parallel resolution
     $0
+
+    # With instance principals (for OCI VMs)
+    $0 --instance-principals
 
     # Dry run to see what would be resolved
     $0 --dry-run
@@ -78,6 +83,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --start)
             START_GATEWAY=true
+            shift
+            ;;
+        --instance-principals)
+            INSTANCE_PRINCIPALS=true
             shift
             ;;
         --help)
@@ -135,8 +144,10 @@ RESOLVER_CMD="python3 $RESOLVER --ttl $CACHE_TTL"
 if [[ "$VERBOSE" == "true" ]]; then
     RESOLVER_CMD="$RESOLVER_CMD --verbose"
 fi
-
-echo -e "${BLUE}==> Resolving OCI Vault secrets${NC}"
+if [[ "$INSTANCE_PRINCIPALS" == "true" ]]; then
+    RESOLVER_CMD="$RESOLVER_CMD --instance-principals"
+fi
+echo -e "${BLUE}==> Resolving OCI Vault secrets (parallel mode)${NC}"
 
 # Resolve secrets
 RESOLVED_CONFIG=$(echo "$ORIGINAL_CONFIG" | $RESOLVER_CMD) || {

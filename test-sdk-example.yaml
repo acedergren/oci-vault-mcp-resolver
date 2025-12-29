@@ -1,0 +1,32 @@
+# Test configuration for OCI Vault MCP Resolver SDK mode
+# This file demonstrates vault references that will be resolved
+
+application:
+  name: test-app
+  version: 1.0.0
+
+database:
+  host: postgres.example.com
+  port: 5432
+  username: admin
+  # This will be resolved from OCI Vault
+  password: oci-vault://REPLACE_WITH_YOUR_SECRET_OCID
+
+api:
+  # These will be resolved in parallel when using SDK mode
+  endpoint: https://api.example.com
+  key: oci-vault://REPLACE_WITH_YOUR_COMPARTMENT_OCID/api-key
+  webhook_secret: oci-vault://REPLACE_WITH_YOUR_VAULT_OCID/webhook-secret
+
+# Nested configuration also supported
+services:
+  prometheus:
+    url: http://localhost:9090
+    token: oci-vault://REPLACE_WITH_YOUR_SECRET_OCID
+
+  elasticsearch:
+    hosts:
+      - http://localhost:9200
+    credentials:
+      username: elastic
+      password: oci-vault://REPLACE_WITH_YOUR_COMPARTMENT_OCID/elastic-password

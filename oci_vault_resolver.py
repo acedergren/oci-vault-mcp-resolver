@@ -3,7 +3,7 @@
 OCI Vault MCP Resolver
 
 Resolves oci-vault:// references in Docker MCP Gateway configuration
-by fetching secrets from Oracle Cloud Infrastructure Vault.
+by fetching secrets from Oracle Cloud Infrastructure Vault using the OCI Python SDK.
 
 Supported URL formats:
   - oci-vault://secret-ocid
@@ -11,24 +11,34 @@ Supported URL formats:
   - oci-vault://vault-ocid/secret-name
 
 Features:
+  - Parallel secret resolution for optimal performance
   - Caching with configurable TTL
   - Fallback to stale cache on errors
+  - Instance principal authentication (for OCI VMs)
+  - Structured error handling
   - Recursive resolution of nested configs
-  - Clear error messages
 """
 
 import argparse
+import asyncio
 import base64
 import json
-import os
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
+
+try:
+    import oci
+    from oci.secrets import SecretsClient
+    from oci.vault import VaultsClient
+except ImportError as e:
+    print("ERROR: OCI SDK is required. Install with: pip install oci", file=sys.stderr)
+    print(f"Import error: {e}", file=sys.stderr)
+    sys.exit(1)
 
 
 # Configuration
@@ -38,13 +48,61 @@ VAULT_URL_PATTERN = re.compile(r'^oci-vault://(.+)$')
 
 
 class VaultResolver:
-    """Resolves OCI Vault references in configuration."""
+    """
+    Resolves OCI Vault references in configuration using OCI Python SDK.
 
-    def __init__(self, cache_dir: Path = DEFAULT_CACHE_DIR, ttl: int = DEFAULT_TTL, verbose: bool = False):
+    Features:
+    - Direct API calls (no subprocess overhead)
+    - Parallel secret resolution
+    - Better error handling with structured exceptions
+    - Instance principal authentication support
+    """
+
+    def __init__(
+        self,
+        cache_dir: Path = DEFAULT_CACHE_DIR,
+        ttl: int = DEFAULT_TTL,
+        verbose: bool = False,
+        use_instance_principals: bool = False,
+        config_file: Optional[str] = None,
+        config_profile: str = "DEFAULT"
+    ):
+        """
+        Initialize SDK-based resolver.
+
+        Args:
+            cache_dir: Cache directory path
+            ttl: Cache TTL in seconds
+            verbose: Enable verbose logging
+            use_instance_principals: Use instance principal authentication (for OCI VMs)
+            config_file: Path to OCI config file (default: ~/.oci/config)
+            config_profile: Config profile to use
+        """
         self.cache_dir = cache_dir
         self.ttl = ttl
         self.verbose = verbose
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Initialize OCI clients
+        try:
+            if use_instance_principals:
+                self.log("Using instance principal authentication")
+                signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+                self.secrets_client = SecretsClient(config={}, signer=signer)
+                self.vaults_client = VaultsClient(config={}, signer=signer)
+            else:
+                self.log(f"Loading OCI config from {config_file or '~/.oci/config'} profile={config_profile}")
+                config = oci.config.from_file(
+                    file_location=config_file,
+                    profile_name=config_profile
+                )
+                self.secrets_client = SecretsClient(config)
+                self.vaults_client = VaultsClient(config)
+
+            self.log("OCI SDK clients initialized successfully")
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize OCI SDK clients: {e}")
 
     def log(self, message: str):
         """Log message if verbose mode is enabled."""
@@ -151,69 +209,67 @@ class VaultResolver:
             self.log(f"Cache write error: {e}")
 
     def fetch_secret_by_ocid(self, secret_ocid: str) -> Optional[str]:
-        """Fetch secret value from OCI Vault by secret OCID."""
+        """Fetch secret value from OCI Vault by secret OCID using SDK."""
         try:
             self.log(f"Fetching secret: {secret_ocid}")
 
-            cmd = [
-                'oci', 'secrets', 'secret-bundle', 'get',
-                '--secret-id', secret_ocid,
-                '--query', 'data."secret-bundle-content".content',
-                '--raw-output'
-            ]
+            # Direct SDK API call
+            response = self.secrets_client.get_secret_bundle(secret_id=secret_ocid)
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            # Extract and decode content
+            content = response.data.secret_bundle_content.content
+            decoded = base64.b64decode(content).decode('utf-8')
 
-            # Decode base64 content
-            encoded_content = result.stdout.strip()
-            if encoded_content:
-                decoded = base64.b64decode(encoded_content).decode('utf-8')
-                self.log(f"Successfully fetched: {secret_ocid}")
-                return decoded
+            self.log(f"Successfully fetched: {secret_ocid}")
+            return decoded
 
+        except oci.exceptions.ServiceError as e:
+            # Structured exception handling
+            if e.status == 404:
+                self.log(f"Secret not found: {secret_ocid}")
+                print(f"ERROR: Secret not found: {secret_ocid}", file=sys.stderr)
+            elif e.status == 401:
+                self.log(f"Authentication failed")
+                print(f"ERROR: Authentication failed. Check OCI credentials.", file=sys.stderr)
+            elif e.status == 403:
+                self.log(f"Permission denied for secret: {secret_ocid}")
+                print(f"ERROR: Permission denied for secret: {secret_ocid}", file=sys.stderr)
+            else:
+                self.log(f"OCI API error: {e.message}")
+                print(f"ERROR: OCI API error: {e.message}", file=sys.stderr)
             return None
 
-        except subprocess.CalledProcessError as e:
-            self.log(f"OCI CLI error: {e.stderr}")
-            return None
         except Exception as e:
             self.log(f"Error fetching secret: {e}")
+            print(f"ERROR: {e}", file=sys.stderr)
             return None
 
     def find_secret_by_name(self, compartment_id: str, secret_name: str) -> Optional[str]:
-        """Find secret OCID by name in a compartment."""
+        """Find secret OCID by name in a compartment using SDK."""
         try:
             self.log(f"Searching for secret '{secret_name}' in compartment {compartment_id}")
 
-            cmd = [
-                'oci', 'vault', 'secret', 'list',
-                '--compartment-id', compartment_id,
-                '--all',
-                '--query', f'data[?"secret-name"==`{secret_name}`].id | [0]',
-                '--raw-output'
-            ]
-
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
+            # List secrets in compartment using SDK
+            response = self.vaults_client.list_secrets(
+                compartment_id=compartment_id,
+                lifecycle_state="ACTIVE"
             )
 
-            secret_ocid = result.stdout.strip()
-            if secret_ocid and secret_ocid != 'None':
-                self.log(f"Found secret OCID: {secret_ocid}")
-                return secret_ocid
+            # Find matching secret
+            for secret in response.data:
+                if secret.secret_name == secret_name:
+                    self.log(f"Found secret OCID: {secret.id}")
+                    return secret.id
 
+            self.log(f"Secret '{secret_name}' not found in compartment")
             return None
 
-        except subprocess.CalledProcessError as e:
-            self.log(f"OCI CLI error: {e.stderr}")
+        except oci.exceptions.ServiceError as e:
+            self.log(f"OCI API error: {e.message}")
+            print(f"ERROR: {e.message}", file=sys.stderr)
+            return None
+        except Exception as e:
+            self.log(f"Error searching for secret: {e}")
             return None
 
     def resolve_secret(self, vault_url: str) -> Optional[str]:
@@ -324,9 +380,35 @@ class VaultResolver:
 
         return obj
 
+    async def fetch_secrets_parallel(self, vault_urls: List[str]) -> Dict[str, Optional[str]]:
+        """
+        Fetch multiple secrets in parallel using asyncio.
+
+        Args:
+            vault_urls: List of oci-vault:// URLs
+
+        Returns:
+            Dictionary mapping vault URL to secret value
+        """
+        self.log(f"Fetching {len(vault_urls)} secrets in parallel")
+
+        # Create tasks for parallel execution
+        async def fetch_one(url: str) -> Tuple[str, Optional[str]]:
+            # Run synchronous secret resolution in executor
+            loop = asyncio.get_event_loop()
+            value = await loop.run_in_executor(None, self.resolve_secret, url)
+            return url, value
+
+        # Execute all tasks concurrently
+        tasks = [fetch_one(url) for url in vault_urls]
+        results = await asyncio.gather(*tasks)
+
+        return dict(results)
+
     def resolve_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Resolve all oci-vault:// references in a config dictionary.
+        Uses parallel resolution for better performance.
 
         Returns: config with resolved secrets
         """
@@ -337,13 +419,24 @@ class VaultResolver:
             self.log("No vault references found in config")
             return config
 
-        print(f"Found {len(references)} vault reference(s) to resolve", file=sys.stderr)
+        vault_urls = list(references.values())
+        print(f"Found {len(references)} vault reference(s) to resolve (parallel mode)", file=sys.stderr)
 
-        # Resolve each reference
+        # Resolve all secrets in parallel
+        try:
+            resolved_secrets = asyncio.run(self.fetch_secrets_parallel(vault_urls))
+        except RuntimeError:
+            # If event loop already running (e.g., in async context), fall back to sequential
+            self.log("Event loop already running, using sequential resolution")
+            # Sequential fallback
+            resolved_secrets = {}
+            for vault_url in vault_urls:
+                resolved_secrets[vault_url] = self.resolve_secret(vault_url)
+
+        # Apply resolved values to config
         resolved_count = 0
         for path, vault_url in references.items():
-            self.log(f"Resolving: {path} -> {vault_url}")
-            secret_value = self.resolve_secret(vault_url)
+            secret_value = resolved_secrets.get(vault_url)
 
             if secret_value is not None:
                 self.set_nested_value(config, path, secret_value)
@@ -359,23 +452,27 @@ class VaultResolver:
         return config
 
 
+
 def main():
     parser = argparse.ArgumentParser(
         description='Resolve OCI Vault references in Docker MCP Gateway configuration',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Read from stdin, resolve secrets, output to stdout
+  # Basic usage (parallel resolution)
   docker mcp config read | python3 oci_vault_resolver.py
 
-  # Resolve secrets and update gateway config
-  docker mcp config read | python3 oci_vault_resolver.py | docker mcp config write
+  # With instance principals (for OCI VMs)
+  docker mcp config read | python3 oci_vault_resolver.py --instance-principals
 
   # Use custom cache TTL (2 hours)
   docker mcp config read | python3 oci_vault_resolver.py --ttl 7200
 
   # Enable verbose logging
   docker mcp config read | python3 oci_vault_resolver.py --verbose
+
+  # With custom config profile
+  docker mcp config read | python3 oci_vault_resolver.py --profile MY_PROFILE
 
   # Clear cache
   rm -rf ~/.cache/oci-vault-mcp/
@@ -416,6 +513,26 @@ Examples:
         help='Enable verbose logging to stderr'
     )
 
+    # Authentication options
+    parser.add_argument(
+        '--instance-principals',
+        action='store_true',
+        help='Use instance principal authentication (for OCI VMs)'
+    )
+
+    parser.add_argument(
+        '--config-file',
+        type=str,
+        help='Path to OCI config file (default: ~/.oci/config)'
+    )
+
+    parser.add_argument(
+        '--profile',
+        type=str,
+        default='DEFAULT',
+        help='OCI config profile to use (default: DEFAULT)'
+    )
+
     args = parser.parse_args()
 
     # Read input config
@@ -429,13 +546,24 @@ Examples:
         print("ERROR: Empty or invalid YAML input", file=sys.stderr)
         sys.exit(1)
 
-    # Resolve secrets
-    resolver = VaultResolver(
-        cache_dir=args.cache_dir,
-        ttl=args.ttl,
-        verbose=args.verbose
-    )
+    # Initialize resolver with SDK
+    if args.verbose:
+        print("Using OCI SDK (parallel resolution enabled)", file=sys.stderr)
 
+    try:
+        resolver = VaultResolver(
+            cache_dir=args.cache_dir,
+            ttl=args.ttl,
+            verbose=args.verbose,
+            use_instance_principals=args.instance_principals,
+            config_file=args.config_file,
+            config_profile=args.profile
+        )
+    except Exception as e:
+        print(f"ERROR: Failed to initialize resolver: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve secrets
     resolved_config = resolver.resolve_config(config)
 
     # Write output

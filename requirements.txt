@@ -1,0 +1,6 @@
+# Core dependencies
+PyYAML>=6.0
+
+# OCI SDK (required)
+# Provides direct API access with parallel resolution
+oci>=2.126.0
