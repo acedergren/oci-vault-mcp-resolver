@@ -324,6 +324,11 @@ Allow group mcp-users to read vaults in compartment mcp-secrets
 Allow group mcp-users to read keys in compartment mcp-secrets
 ```
 
+## Security Audit
+
+- `pip-audit -r requirements.txt` (2026-01-03): **no known vulnerabilities found**
+- `bandit -q -r oci_vault_resolver.py` (2026-01-03): **no issues reported**
+
 ## Integration with CI/CD
 
 ### GitHub Actions
