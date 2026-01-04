@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Gateway - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-brand">
+            <i class="fas fa-server"></i>
+            <span>MCP Gateway</span>
+        </div>
+        <div class="nav-links">
+            <a href="#dashboard" class="nav-link active" data-tab="dashboard">
+                <i class="fas fa-home"></i> Dashboard
+            </a>
+            <a href="#marketplace" class="nav-link" data-tab="marketplace">
+                <i class="fas fa-store"></i> Marketplace
+            </a>
+            <a href="#secrets" class="nav-link" data-tab="secrets">
+                <i class="fas fa-key"></i> Secrets
+            </a>
+            <a href="#config" class="nav-link" data-tab="config">
+                <i class="fas fa-cog"></i> Configuration
+            </a>
+        </div>
+        <div class="nav-actions">
+            <button class="btn btn-sm btn-outline" id="refresh-btn">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container">
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content active">
+            <div class="page-header">
+                <h1>Dashboard</h1>
+                <p class="subtitle">Overview of your MCP Gateway and OCI Vault integration</p>
+            </div>
+
+            <!-- Status Cards -->
+            <div class="cards-grid">
+                <div class="card" id="docker-status-card">
+                    <div class="card-icon">
+                        <i class="fas fa-docker"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>Docker MCP</h3>
+                        <div class="status-indicator">
+                            <span class="status-dot"></span>
+                            <span class="status-text">Checking...</span>
+                        </div>
+                        <p class="card-detail"></p>
+                    </div>
+                </div>
+
+                <div class="card" id="oci-status-card">
+                    <div class="card-icon">
+                        <i class="fas fa-cloud"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>OCI Vault</h3>
+                        <div class="status-indicator">
+                            <span class="status-dot"></span>
+                            <span class="status-text">Checking...</span>
+                        </div>
+                        <p class="card-detail"></p>
+                    </div>
+                </div>
+
+                <div class="card" id="cache-status-card">
+                    <div class="card-icon">
+                        <i class="fas fa-database"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>Secrets Cache</h3>
+                        <div class="status-indicator">
+                            <span class="status-dot status-active"></span>
+                            <span class="status-text">Active</span>
+                        </div>
+                        <p class="card-detail">0 secrets cached</p>
+                    </div>
+                </div>
+
+                <div class="card" id="servers-status-card">
+                    <div class="card-icon">
+                        <i class="fas fa-server"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>MCP Servers</h3>
+                        <div class="status-indicator">
+                            <span class="status-dot"></span>
+                            <span class="status-text">0 configured</span>
+                        </div>
+                        <p class="card-detail">View all servers</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Servers List -->
+            <div class="section">
+                <div class="section-header">
+                    <h2>Configured Servers</h2>
+                    <button class="btn btn-primary" id="add-server-btn">
+                        <i class="fas fa-plus"></i> Add Server
+                    </button>
+                </div>
+                <div id="servers-list" class="servers-list">
+                    <div class="empty-state">
+                        <i class="fas fa-server"></i>
+                        <p>No servers configured yet</p>
+                        <button class="btn btn-primary" onclick="document.querySelector('[data-tab=marketplace]').click()">
+                            Browse Marketplace
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="section">
+                <h2>Quick Actions</h2>
+                <div class="actions-grid">
+                    <button class="action-card" id="resolve-secrets-btn">
+                        <i class="fas fa-magic"></i>
+                        <span>Resolve Secrets</span>
+                        <p>Fetch and resolve OCI Vault secrets</p>
+                    </button>
+                    <button class="action-card" id="clear-cache-btn">
+                        <i class="fas fa-trash"></i>
+                        <span>Clear Cache</span>
+                        <p>Remove all cached secrets</p>
+                    </button>
+                    <button class="action-card" id="restart-gateway-btn">
+                        <i class="fas fa-redo"></i>
+                        <span>Restart Gateway</span>
+                        <p>Restart MCP Gateway</p>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Marketplace Tab -->
+        <div id="marketplace" class="tab-content">
+            <div class="page-header">
+                <h1>MCP Marketplace</h1>
+                <p class="subtitle">Browse and install MCP servers</p>
+            </div>
+
+            <!-- Category Filter -->
+            <div class="filter-bar">
+                <button class="filter-btn active" data-category="all">All</button>
+                <button class="filter-btn" data-category="Core">Core</button>
+                <button class="filter-btn" data-category="Development">Development</button>
+                <button class="filter-btn" data-category="Database">Database</button>
+                <button class="filter-btn" data-category="Monitoring">Monitoring</button>
+                <button class="filter-btn" data-category="Communication">Communication</button>
+                <button class="filter-btn" data-category="Automation">Automation</button>
+            </div>
+
+            <!-- Marketplace Grid -->
+            <div id="marketplace-grid" class="marketplace-grid">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+
+        <!-- Secrets Tab -->
+        <div id="secrets" class="tab-content">
+            <div class="page-header">
+                <h1>Secrets Management</h1>
+                <p class="subtitle">Manage OCI Vault secrets and cache</p>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2>Cached Secrets</h2>
+                    <button class="btn btn-danger" id="clear-all-cache-btn">
+                        <i class="fas fa-trash"></i> Clear All
+                    </button>
+                </div>
+                <div id="secrets-table-container">
+                    <table class="data-table" id="secrets-table">
+                        <thead>
+                            <tr>
+                                <th>Secret Reference</th>
+                                <th>Cached At</th>
+                                <th>Age</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Dynamically populated -->
+                        </tbody>
+                    </table>
+                    <div class="empty-state" id="secrets-empty">
+                        <i class="fas fa-key"></i>
+                        <p>No secrets cached</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>OCI Vault Configuration</h2>
+                <div class="info-box">
+                    <h3><i class="fas fa-info-circle"></i> How to use OCI Vault references</h3>
+                    <p>Use the following URL formats in your MCP configuration:</p>
+                    <ul>
+                        <li><code>oci-vault://ocid1.vaultsecret.oc1.xxx</code> - Direct secret OCID (fastest)</li>
+                        <li><code>oci-vault://ocid1.compartment.oc1..xxx/secret-name</code> - Compartment + name (recommended)</li>
+                        <li><code>oci-vault://ocid1.vault.oc1.xxx/secret-name</code> - Vault + name</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Configuration Tab -->
+        <div id="config" class="tab-content">
+            <div class="page-header">
+                <h1>Configuration Editor</h1>
+                <p class="subtitle">Edit your MCP Gateway configuration</p>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <h2>Configuration YAML</h2>
+                    <div>
+                        <button class="btn btn-secondary" id="load-config-btn">
+                            <i class="fas fa-download"></i> Load
+                        </button>
+                        <button class="btn btn-primary" id="save-config-btn">
+                            <i class="fas fa-save"></i> Save
+                        </button>
+                        <button class="btn btn-success" id="resolve-and-save-btn">
+                            <i class="fas fa-magic"></i> Resolve & Save
+                        </button>
+                    </div>
+                </div>
+                <div class="editor-container">
+                    <textarea id="config-editor" placeholder="# MCP Gateway Configuration (YAML)
+# Load your configuration to edit"></textarea>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>Configuration Tips</h2>
+                <div class="tips-grid">
+                    <div class="tip-card">
+                        <i class="fas fa-lightbulb"></i>
+                        <h3>Use Vault References</h3>
+                        <p>Replace sensitive values with <code>oci-vault://</code> references for better security</p>
+                    </div>
+                    <div class="tip-card">
+                        <i class="fas fa-clock"></i>
+                        <h3>Cache TTL</h3>
+                        <p>Secrets are cached for 1 hour by default. Clear cache to force refresh</p>
+                    </div>
+                    <div class="tip-card">
+                        <i class="fas fa-shield-alt"></i>
+                        <h3>Security</h3>
+                        <p>Cache files are stored with 0600 permissions for security</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal" id="server-detail-modal">
+            <div class="modal-header">
+                <h2 id="modal-title">Server Details</h2>
+                <button class="modal-close" onclick="closeModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Dynamically populated -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" id="modal-action-btn">Install</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Container -->
+    <div id="notification-container"></div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

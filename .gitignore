@@ -35,3 +35,9 @@ Thumbs.db
 # Temporary files
 /tmp/
 *.tmp
+
+# Web UI
+web/__pycache__/
+web/*.pyc
+web/.flask_session/
+*.db
