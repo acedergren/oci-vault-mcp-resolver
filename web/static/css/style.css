@@ -19,6 +19,7 @@
     --text-primary: #0f172a;
     --text-secondary: #475569;
     --text-tertiary: #94a3b8;
+    --text-light: #e2e8f0;
     
     --border-color: #e2e8f0;
     --border-radius: 12px;
@@ -662,7 +663,7 @@ body {
     border: none;
     resize: vertical;
     background: var(--bg-dark);
-    color: #e2e8f0;
+    color: var(--text-light);
 }
 
 #config-editor:focus {

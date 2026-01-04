@@ -385,6 +385,11 @@ async function loadConfigEditor() {
         currentConfig = config;
         
         const editor = document.getElementById('config-editor');
+        // Check if jsyaml is loaded
+        if (typeof jsyaml === 'undefined') {
+            showNotification('Warning', 'YAML library still loading, please try again in a moment', 'warning');
+            return;
+        }
         editor.value = jsyaml.dump(config);
     } catch (error) {
         showNotification('Error', 'Failed to load configuration: ' + error.message, 'error');
@@ -394,6 +399,11 @@ async function loadConfigEditor() {
 async function saveConfig() {
     try {
         const editor = document.getElementById('config-editor');
+        // Check if jsyaml is loaded
+        if (typeof jsyaml === 'undefined') {
+            showNotification('Error', 'YAML library not loaded yet', 'error');
+            return;
+        }
         const config = jsyaml.load(editor.value);
         
         await apiCall('/config', {
@@ -411,6 +421,11 @@ async function saveConfig() {
 async function resolveAndSave() {
     try {
         const editor = document.getElementById('config-editor');
+        // Check if jsyaml is loaded
+        if (typeof jsyaml === 'undefined') {
+            showNotification('Error', 'YAML library not loaded yet', 'error');
+            return;
+        }
         const config = jsyaml.load(editor.value);
         
         showNotification('Info', 'Resolving OCI Vault secrets...', 'info');
@@ -527,7 +542,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Load js-yaml from CDN for YAML parsing
+// Load js-yaml from CDN for YAML parsing with SRI for security
 const script = document.createElement('script');
 script.src = 'https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js';
+script.integrity = 'sha512-CSBhVREyzHAjAFfBlIBakjoRUKp5h7VSweP0InR/pAJyptH7peuhCsqAI/snV+TwZmXZqoUklpXp6R6wMnYf5Q==';
+script.crossOrigin = 'anonymous';
+script.onerror = function() {
+    console.error('Failed to load js-yaml library from CDN');
+    showNotification('Error', 'Failed to load YAML library. Configuration editor may not work.', 'error');
+};
 document.head.appendChild(script);

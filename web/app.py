@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -402,8 +403,6 @@ def restart_gateway():
             "details": result.get("error") or result.get("stderr")
         }), 500
 
-
-import time
 
 if __name__ == '__main__':
     # Parse command-line arguments
