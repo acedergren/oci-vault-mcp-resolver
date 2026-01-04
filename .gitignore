@@ -41,3 +41,7 @@ web/__pycache__/
 web/*.pyc
 web/.flask_session/
 *.db
+
+# Screenshots and temp files
+*.png
+/tmp/playwright-logs/
