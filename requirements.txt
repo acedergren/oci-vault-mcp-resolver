@@ -4,3 +4,7 @@ PyYAML>=6.0
 # OCI SDK (required)
 # Provides direct API access with parallel resolution
 oci>=2.126.0
+
+# Web UI dependencies (optional)
+Flask>=3.0.0
+flask-cors>=4.0.0

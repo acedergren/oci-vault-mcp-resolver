@@ -2,6 +2,26 @@
 
 Seamlessly integrate Oracle Cloud Infrastructure (OCI) Vault with Docker MCP Gateway for secure secrets management.
 
+## 🌟 New: Web GUI Available!
+
+Now includes a **modern web interface** for managing MCP servers and OCI Vault secrets! Perfect for non-Docker Desktop environments like servers and remote development.
+
+**Quick Start with Web UI:**
+```bash
+cd web
+./start.sh
+# Open http://127.0.0.1:5000
+```
+
+**Features:**
+- 🎨 Modern dashboard with real-time status
+- 🏪 MCP server marketplace
+- 🔐 Secrets management hub
+- ⚙️ Live configuration editor
+- 🚀 One-click server installation
+
+[📖 Full Web UI Documentation →](web/README.md)
+
 ## Overview
 
 This tool resolves `oci-vault://` references in Docker MCP Gateway configuration by fetching secrets from OCI Vault, enabling centralized secrets management without exposing sensitive values in config files.
@@ -16,8 +36,34 @@ This tool resolves `oci-vault://` references in Docker MCP Gateway configuration
 - 📊 **Verbose Logging**: Optional debug output for troubleshooting
 - 🎯 **Instance Principals**: Native support for OCI VM authentication
 - 🔧 **OCI Python SDK**: Direct API calls with structured error handling
+- 🌐 **Web UI**: Modern web interface for easy management (NEW!)
 
 ## Installation
+
+### Option 1: Web UI (Recommended)
+
+1. **Clone the repository**
+   ```bash
+   cd ~/projects
+   git clone <repo-url> oci-vault-mcp-resolver
+   cd oci-vault-mcp-resolver
+   ```
+
+2. **Install dependencies**
+   ```bash
+   pip3 install --user -r requirements.txt
+   ```
+
+3. **Start the web UI**
+   ```bash
+   cd web
+   ./start.sh
+   ```
+
+4. **Open your browser**
+   Navigate to `http://127.0.0.1:5000`
+
+### Option 2: Command Line
 
 1. **Clone or download this repository**
    ```bash
