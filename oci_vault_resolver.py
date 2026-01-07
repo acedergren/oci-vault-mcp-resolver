@@ -10,6 +10,10 @@ Supported URL formats:
   - oci-vault://compartment-ocid/secret-name
   - oci-vault://vault-ocid/secret-name
 
+Version support (append ?version=N to any format):
+  - oci-vault://secret-ocid?version=2
+  - oci-vault://compartment-ocid/secret-name?version=3
+
 Features:
   - Parallel secret resolution for optimal performance
   - Caching with configurable TTL
@@ -17,6 +21,7 @@ Features:
   - Instance principal authentication (for OCI VMs)
   - Structured error handling
   - Recursive resolution of nested configs
+  - Specific secret version retrieval
 """
 
 import argparse
@@ -109,40 +114,59 @@ class VaultResolver:
         if self.verbose:
             print(f"[DEBUG] {message}", file=sys.stderr)
 
-    def parse_vault_url(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    def parse_vault_url(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[int]]:
         """
         Parse oci-vault:// URL into components.
 
-        Returns: (secret_ocid, compartment_id, secret_name) or (None, None, None)
+        Supports version query parameter:
+          - oci-vault://secret-ocid?version=2
+          - oci-vault://compartment-id/secret-name?version=3
+
+        Returns: (secret_ocid, compartment_id, secret_name, version_number) or (None, None, None, None)
         """
         match = VAULT_URL_PATTERN.match(url)
         if not match:
-            return None, None, None
+            return None, None, None, None
 
         path = match.group(1)
+
+        # Extract version query parameter if present
+        version_number = None
+        if '?' in path:
+            path, query = path.split('?', 1)
+            # Parse query parameters
+            for param in query.split('&'):
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    if key.lower() == 'version':
+                        try:
+                            version_number = int(value)
+                        except ValueError:
+                            self.log(f"Invalid version number: {value}")
+
         parts = path.split('/')
 
         # Format: oci-vault://secret-ocid
         if len(parts) == 1:
             if parts[0].startswith('ocid1.vaultsecret.'):
-                return parts[0], None, None
+                return parts[0], None, None, version_number
             else:
                 # Treat as secret name in default compartment
-                return None, None, parts[0]
+                return None, None, parts[0], version_number
 
         # Format: oci-vault://compartment-or-vault-id/secret-name
         elif len(parts) == 2:
             container_id, secret_name = parts
             if container_id.startswith('ocid1.compartment.'):
-                return None, container_id, secret_name
+                return None, container_id, secret_name, version_number
             elif container_id.startswith('ocid1.vault.'):
                 # For vault OCID, we need to list secrets in that vault
-                return None, container_id, secret_name
+                return None, container_id, secret_name, version_number
             else:
                 # Treat first part as compartment name
-                return None, container_id, secret_name
+                return None, container_id, secret_name, version_number
 
-        return None, None, None
+        return None, None, None, None
 
     def get_cache_path(self, cache_key: str) -> Path:
         """Get cache file path for a cache key."""
@@ -208,26 +232,40 @@ class VaultResolver:
         except Exception as e:
             self.log(f"Cache write error: {e}")
 
-    def fetch_secret_by_ocid(self, secret_ocid: str) -> Optional[str]:
-        """Fetch secret value from OCI Vault by secret OCID using SDK."""
-        try:
-            self.log(f"Fetching secret: {secret_ocid}")
+    def fetch_secret_by_ocid(self, secret_ocid: str, version_number: Optional[int] = None) -> Optional[str]:
+        """
+        Fetch secret value from OCI Vault by secret OCID using SDK.
 
-            # Direct SDK API call
-            response = self.secrets_client.get_secret_bundle(secret_id=secret_ocid)
+        Args:
+            secret_ocid: The OCID of the secret to fetch
+            version_number: Optional specific version number to fetch (default: CURRENT)
+        """
+        try:
+            version_info = f" (version {version_number})" if version_number else ""
+            self.log(f"Fetching secret: {secret_ocid}{version_info}")
+
+            # Direct SDK API call with optional version number
+            if version_number is not None:
+                response = self.secrets_client.get_secret_bundle(
+                    secret_id=secret_ocid,
+                    version_number=version_number
+                )
+            else:
+                response = self.secrets_client.get_secret_bundle(secret_id=secret_ocid)
 
             # Extract and decode content
             content = response.data.secret_bundle_content.content
             decoded = base64.b64decode(content).decode('utf-8')
 
-            self.log(f"Successfully fetched: {secret_ocid}")
+            self.log(f"Successfully fetched: {secret_ocid}{version_info}")
             return decoded
 
         except oci.exceptions.ServiceError as e:
             # Structured exception handling
+            version_info = f" version {version_number}" if version_number else ""
             if e.status == 404:
-                self.log(f"Secret not found: {secret_ocid}")
-                print(f"ERROR: Secret not found: {secret_ocid}", file=sys.stderr)
+                self.log(f"Secret not found: {secret_ocid}{version_info}")
+                print(f"ERROR: Secret not found: {secret_ocid}{version_info}", file=sys.stderr)
             elif e.status == 401:
                 self.log(f"Authentication failed")
                 print(f"ERROR: Authentication failed. Check OCI credentials.", file=sys.stderr)
@@ -276,6 +314,10 @@ class VaultResolver:
         """
         Resolve a single oci-vault:// URL to its secret value.
 
+        Supports version query parameter:
+          - oci-vault://secret-ocid?version=2
+          - oci-vault://compartment-id/secret-name?version=3
+
         Uses caching and provides fallback to stale cache on errors.
         """
         cache_key = vault_url
@@ -287,8 +329,8 @@ class VaultResolver:
             if not is_stale:
                 return value
 
-        # Parse URL
-        secret_ocid, compartment_id, secret_name = self.parse_vault_url(vault_url)
+        # Parse URL (now includes version_number)
+        secret_ocid, compartment_id, secret_name, version_number = self.parse_vault_url(vault_url)
 
         if not secret_ocid and not secret_name:
             print(f"ERROR: Invalid vault URL format: {vault_url}", file=sys.stderr)
@@ -312,8 +354,8 @@ class VaultResolver:
 
                 return None
 
-        # Fetch secret value
-        secret_value = self.fetch_secret_by_ocid(secret_ocid)
+        # Fetch secret value (with optional version)
+        secret_value = self.fetch_secret_by_ocid(secret_ocid, version_number)
 
         if secret_value:
             # Cache the result
@@ -476,6 +518,12 @@ Examples:
 
   # Clear cache
   rm -rf ~/.cache/oci-vault-mcp/
+
+URL Formats:
+  oci-vault://ocid1.vaultsecret.oc1...           # Direct secret OCID
+  oci-vault://ocid1.compartment.../secret-name   # Compartment + name
+  oci-vault://ocid1.vault.../secret-name         # Vault + name
+  oci-vault://...?version=2                      # Specific version (any format)
         """
     )
 

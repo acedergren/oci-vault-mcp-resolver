@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Secret versioning support via `?version=N` query parameter
+  - Format: `oci-vault://secret-ocid?version=2`
+  - Format: `oci-vault://compartment-id/secret-name?version=3`
+  - Works with all URL formats (direct OCID, compartment+name, vault+name)
+  - Cache keys include version for proper isolation
+
 ### Planned
-- Secret versioning support
 - Distributed cache backends (Redis, Memcached)
 - Metrics export (Prometheus integration)
 - Auto-refresh and secret rotation detection
