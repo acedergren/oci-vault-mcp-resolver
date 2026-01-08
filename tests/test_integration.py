@@ -21,8 +21,12 @@ from pathlib import Path
 
 import pytest
 
-from oci_vault_resolver import (AuthenticationError, PermissionDeniedError,
-                                SecretNotFoundError, VaultResolver)
+from oci_vault_resolver import (
+    AuthenticationError,
+    PermissionDeniedError,
+    SecretNotFoundError,
+    VaultResolver,
+)
 
 # Skip all tests in this module by default
 pytestmark = pytest.mark.integration
