@@ -27,7 +27,7 @@ This document provides essential context for AI assistants working with the OCI 
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                 VaultResolver Class                          │
-│  oci_vault_resolver.py:50-453                               │
+│  oci_vault_resolver.py:50-452                               │
 ├─────────────────────────────────────────────────────────────┤
 │  Core Methods:                                               │
 │  - resolve_config()      → Parallel resolution of all refs  │
