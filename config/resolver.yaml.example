@@ -1,0 +1,268 @@
+# OCI Vault MCP Resolver Configuration
+# =====================================
+# This file defines the default configuration for resolving secrets from
+# Oracle Cloud Infrastructure (OCI) Vault for use with Docker MCP Gateway
+# and standalone applications.
+#
+# Copy this file to one of these locations:
+#   1. ~/.config/oci-vault-mcp/resolver.yaml (recommended, user-level)
+#   2. /etc/oci-vault-mcp/resolver.yaml (system-level)
+#   3. ./resolver.yaml (current directory)
+#
+# Configuration priority: User config → System config → Local config → Environment variables
+
+version: "1.0"
+
+# ============================================================================
+# OCI Vault Settings
+# ============================================================================
+vault:
+  # Vault OCID where secrets are stored
+  # Example: ocid1.vault.oc1.eu-frankfurt-1.bfpizfqyaacmg.xxx
+  vault_id: "ocid1.vault.oc1.REGION.YOUR_VAULT_OCID"
+
+  # Compartment OCID for secret lookups by name
+  # Example: ocid1.compartment.oc1..aaaaaaaarekfofhmfup6d33agbnicuop2waas3ssdwdc7qjgencirdgvl3iq
+  compartment_id: "ocid1.compartment.oc1..YOUR_COMPARTMENT_OCID"
+
+  # OCI region (e.g., eu-frankfurt-1, us-phoenix-1, us-ashburn-1)
+  region: "eu-frankfurt-1"
+
+  # Authentication method: config_file | instance_principal
+  # - config_file: Use ~/.oci/config (recommended for SSH servers)
+  # - instance_principal: Use Instance Principal auth (for OCI VMs only)
+  auth_method: "config_file"
+
+  # OCI config file path (only used when auth_method is "config_file")
+  config_file: "~/.oci/config"
+
+  # OCI config profile name (only used when auth_method is "config_file")
+  config_profile: "DEFAULT"
+
+# ============================================================================
+# Cache Settings
+# ============================================================================
+cache:
+  # Directory for cached secrets
+  directory: "~/.cache/oci-vault-mcp"
+
+  # Cache TTL (Time To Live) in seconds
+  # Default: 3600 (1 hour)
+  # Recommendations:
+  #   - Development: 7200 (2 hours)
+  #   - Production: 1800 (30 minutes) for better security
+  ttl: 3600
+
+  # Enable fallback to stale cache when OCI Vault is unavailable
+  # This prevents service disruption if vault API is temporarily down
+  enable_stale_fallback: true
+
+# ============================================================================
+# Resilience Settings
+# ============================================================================
+resilience:
+  # Circuit Breaker - Prevents cascading failures
+  # Opens circuit after threshold failures, blocks requests during recovery
+  enable_circuit_breaker: true
+
+  # Number of consecutive failures before opening circuit breaker
+  circuit_breaker_threshold: 5
+
+  # Seconds to wait before attempting recovery (half-open state)
+  circuit_breaker_recovery: 60
+
+  # Maximum retry attempts for failed API calls
+  max_retries: 3
+
+  # Base delay for exponential backoff (seconds)
+  # Actual delay = retry_backoff_base * (2 ^ attempt)
+  retry_backoff_base: 2
+
+  # Add random jitter to backoff delay (prevents thundering herd)
+  retry_jitter: true
+
+# ============================================================================
+# Secret Mappings
+# ============================================================================
+# Maps environment variable names (used by MCP servers) to secret names in OCI Vault
+# Follow the naming convention: mcp-{service}-{type}[-{environment}]
+#
+# Examples:
+#   - mcp-github-token        : GitHub Personal Access Token
+#   - mcp-anthropic-key       : Anthropic API key
+#   - mcp-postgres-password   : PostgreSQL database password
+#   - mcp-github-token-prod   : Production GitHub PAT (environment-specific)
+
+secrets:
+  # GitHub MCP Server (@modelcontextprotocol/server-github)
+  GITHUB_PERSONAL_ACCESS_TOKEN: "mcp-github-token"
+
+  # Anthropic Claude API
+  ANTHROPIC_API_KEY: "mcp-anthropic-key"
+
+  # OpenAI API
+  OPENAI_API_KEY: "mcp-openai-key"
+
+  # PostgreSQL MCP Server
+  POSTGRES_PASSWORD: "mcp-postgres-password"
+  POSTGRES_USER: "mcp-postgres-user"
+  POSTGRES_HOST: "mcp-postgres-host"
+  POSTGRES_DATABASE: "mcp-postgres-database"
+
+  # MySQL MCP Server
+  MYSQL_PASSWORD: "mcp-mysql-password"
+  MYSQL_USER: "mcp-mysql-user"
+  MYSQL_HOST: "mcp-mysql-host"
+  MYSQL_DATABASE: "mcp-mysql-database"
+
+  # MongoDB MCP Server
+  MONGODB_URI: "mcp-mongodb-uri"
+
+  # Redis
+  REDIS_PASSWORD: "mcp-redis-password"
+  REDIS_URL: "mcp-redis-url"
+
+  # AWS Credentials
+  AWS_ACCESS_KEY_ID: "mcp-aws-access-key"
+  AWS_SECRET_ACCESS_KEY: "mcp-aws-secret-key"
+  AWS_SESSION_TOKEN: "mcp-aws-session-token"
+
+  # GCP Credentials
+  GOOGLE_APPLICATION_CREDENTIALS_JSON: "mcp-gcp-credentials-json"
+
+  # Azure Credentials
+  AZURE_CLIENT_ID: "mcp-azure-client-id"
+  AZURE_CLIENT_SECRET: "mcp-azure-client-secret"
+  AZURE_TENANT_ID: "mcp-azure-tenant-id"
+
+  # Generic API tokens
+  API_TOKEN: "mcp-api-token"
+  API_KEY: "mcp-api-key"
+  WEBHOOK_SECRET: "mcp-webhook-secret"
+
+  # Encryption keys
+  ENCRYPTION_KEY: "mcp-encryption-key"
+  JWT_SECRET: "mcp-jwt-secret"
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+logging:
+  # Log level: DEBUG | INFO | WARNING | ERROR
+  level: "INFO"
+
+  # Enable verbose output (includes performance metrics)
+  verbose: false
+
+  # Log file path (optional)
+  # If not specified, logs go to stderr
+  # Example: "/var/log/oci-vault-mcp/resolver.log"
+  file: null
+
+# ============================================================================
+# Environment-Specific Overrides
+# ============================================================================
+# Define environment-specific configurations that override the defaults above
+# Activate with: --env production OR OCI_VAULT_ENVIRONMENT=production
+
+environments:
+  # Production environment
+  production:
+    vault:
+      # Use production compartment
+      compartment_id: "ocid1.compartment.oc1..PROD_COMPARTMENT_OCID"
+
+    cache:
+      # Shorter TTL for better security in production
+      ttl: 1800
+
+    secrets:
+      # Use production-specific secret names
+      GITHUB_PERSONAL_ACCESS_TOKEN: "mcp-github-token-prod"
+      ANTHROPIC_API_KEY: "mcp-anthropic-key-prod"
+      POSTGRES_PASSWORD: "mcp-postgres-password-prod"
+
+    logging:
+      # Less verbose in production
+      verbose: false
+      level: "WARNING"
+
+  # Development environment
+  development:
+    vault:
+      # Use development compartment
+      compartment_id: "ocid1.compartment.oc1..DEV_COMPARTMENT_OCID"
+
+    cache:
+      # Longer TTL for development (less API calls)
+      ttl: 7200
+
+    secrets:
+      # Use development-specific secret names
+      GITHUB_PERSONAL_ACCESS_TOKEN: "mcp-github-token-dev"
+      ANTHROPIC_API_KEY: "mcp-anthropic-key-dev"
+      POSTGRES_PASSWORD: "mcp-postgres-password-dev"
+
+    logging:
+      # More verbose in development
+      verbose: true
+      level: "DEBUG"
+
+  # Staging environment
+  staging:
+    vault:
+      compartment_id: "ocid1.compartment.oc1..STAGING_COMPARTMENT_OCID"
+
+    secrets:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "mcp-github-token-staging"
+      ANTHROPIC_API_KEY: "mcp-anthropic-key-staging"
+
+# ============================================================================
+# MCP Server Commands (Optional)
+# ============================================================================
+# Define custom commands for specific services
+# If not defined, defaults to: npx -y @modelcontextprotocol/server-{service}
+
+services:
+  github:
+    command:
+      - npx
+      - -y
+      - "@modelcontextprotocol/server-github"
+
+  postgres:
+    command:
+      - npx
+      - -y
+      - "@modelcontextprotocol/server-postgres"
+
+  # Custom Python MCP server example
+  custom:
+    command:
+      - python3
+      - /path/to/custom_mcp_server.py
+
+# ============================================================================
+# Environment Variable Overrides
+# ============================================================================
+# All settings above can be overridden with environment variables:
+#
+# Vault settings:
+#   OCI_VAULT_ID                    - Override vault.vault_id
+#   OCI_VAULT_COMPARTMENT_ID        - Override vault.compartment_id
+#   OCI_REGION                      - Override vault.region
+#   OCI_USE_INSTANCE_PRINCIPALS     - Set to "true" for instance principal auth
+#   OCI_CONFIG_FILE                 - Override vault.config_file
+#   OCI_CONFIG_PROFILE              - Override vault.config_profile
+#
+# Cache settings:
+#   OCI_VAULT_CACHE_DIR             - Override cache.directory
+#   OCI_VAULT_CACHE_TTL             - Override cache.ttl (seconds)
+#
+# Environment selection:
+#   OCI_VAULT_ENVIRONMENT           - Select environment (production, development, staging)
+#
+# Example:
+#   export OCI_VAULT_ENVIRONMENT=production
+#   export OCI_VAULT_ID="ocid1.vault.oc1.eu-frankfurt-1.xxx"
+#   python3 mcp_vault_proxy.py --service github

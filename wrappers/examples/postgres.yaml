@@ -1,0 +1,60 @@
+# PostgreSQL MCP Server Configuration
+# This example demonstrates database connection with multiple secrets from OCI Vault
+#
+# Usage:
+#   node /path/to/oci-vault-mcp-resolver/wrappers/wrapper.js \
+#     --config /path/to/this/postgres.yaml
+#
+# Or with Docker MCP Gateway:
+#   "postgres": {
+#     "command": "docker",
+#     "args": [
+#       "exec", "mcp-gateway",
+#       "node", "/app/wrappers/wrapper.js",
+#       "--config", "/app/config/postgres.yaml"
+#     ]
+#   }
+
+# MCP server command
+command: npx
+args:
+  - "-y"
+  - "@modelcontextprotocol/server-postgres"
+
+# Database connection with vault secrets
+# Pattern: vault://mcp-{service}-{type}
+env:
+  # PostgreSQL connection URL (all-in-one secret)
+  # Format: postgresql://user:password@host:5432/database
+  DATABASE_URL: "vault://mcp-postgres-url"
+
+# Alternative: Separate connection parameters
+# Useful when you have individual secrets for different components
+#
+# env:
+#   PGHOST: "vault://mcp-postgres-host"
+#   PGPORT: "5432"
+#   PGDATABASE: "vault://mcp-postgres-database"
+#   PGUSER: "vault://mcp-postgres-user"
+#   PGPASSWORD: "vault://mcp-postgres-password"
+#   # Optional: SSL configuration
+#   PGSSLMODE: "require"
+#   PGSSLROOTCERT: "vault://mcp-postgres-ca-cert"
+
+# Alternative: Mix vault secrets with static values
+#
+# env:
+#   PGHOST: "db.example.com"
+#   PGPORT: "5432"
+#   PGDATABASE: "myapp"
+#   PGUSER: "myapp_user"
+#   PGPASSWORD: "vault://mcp-postgres-password"  # Only password in vault
+
+# Environment variable fallback for local development
+# If vault lookup fails, falls back to local env:
+#
+# env:
+#   DATABASE_URL: "${DATABASE_URL}"
+#
+# Then set in your shell:
+#   export DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"

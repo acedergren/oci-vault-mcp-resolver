@@ -1,0 +1,114 @@
+# Slack MCP Server Configuration
+# This example demonstrates a service with multiple auth tokens and configuration options
+#
+# Usage:
+#   node /path/to/oci-vault-mcp-resolver/wrappers/wrapper.js \
+#     --config /path/to/this/slack.yaml
+#
+# Or with Docker MCP Gateway:
+#   "slack": {
+#     "command": "docker",
+#     "args": [
+#       "exec", "mcp-gateway",
+#       "node", "/app/wrappers/wrapper.js",
+#       "--config", "/app/config/slack.yaml"
+#     ]
+#   }
+
+# Example MCP server command
+# Replace with your actual Slack MCP server
+command: npx
+args:
+  - "-y"
+  - "@modelcontextprotocol/server-slack"
+
+# Slack API configuration with multiple tokens
+# Pattern: vault://mcp-{service}-{type}
+env:
+  # Bot User OAuth Token (required)
+  # Format: xoxb-*
+  # Get from: https://api.slack.com/apps → OAuth & Permissions
+  # Required scopes: channels:read, chat:write, users:read
+  SLACK_BOT_TOKEN: "vault://mcp-slack-bot-token"
+
+  # User OAuth Token (optional, for user-context actions)
+  # Format: xoxp-*
+  # Used for actions that require user permissions
+  # SLACK_USER_TOKEN: "vault://mcp-slack-user-token"
+
+  # Signing Secret (for webhook verification)
+  # Get from: https://api.slack.com/apps → Basic Information
+  SLACK_SIGNING_SECRET: "vault://mcp-slack-signing-secret"
+
+  # App-Level Token (for Socket Mode)
+  # Format: xapp-*
+  # Get from: https://api.slack.com/apps → Basic Information
+  # Required for Socket Mode connections
+  # SLACK_APP_TOKEN: "vault://mcp-slack-app-token"
+
+  # Team/Workspace ID (optional)
+  # Format: T1234567890
+  # SLACK_TEAM_ID: "vault://mcp-slack-team-id"
+
+  # Configuration options (static values)
+  SLACK_API_URL: "https://slack.com/api"
+  SLACK_LOG_LEVEL: "info"
+
+# Alternative: Mix vault secrets with environment fallbacks
+# Useful during migration or for developer-specific configs
+#
+# env:
+#   SLACK_BOT_TOKEN: "vault://mcp-slack-bot-token"
+#   SLACK_SIGNING_SECRET: "${SLACK_SIGNING_SECRET}"  # Fallback to local env
+#   SLACK_TEAM_ID: "${SLACK_TEAM_ID:-T1234567890}"   # With default
+
+# Vault secret creation commands:
+#
+# Bot token:
+#   oci vault secret create-base64 \
+#     --compartment-id "ocid1.compartment.oc1..xxxxx" \
+#     --vault-id "ocid1.vault.oc1.region.xxxxx" \
+#     --secret-name "mcp-slack-bot-token" \
+#     --key-id "ocid1.key.oc1.region.xxxxx" \
+#     --secret-content-content "$(echo -n 'xoxb-your-bot-token' | base64)"
+#
+# Signing secret:
+#   oci vault secret create-base64 \
+#     --compartment-id "ocid1.compartment.oc1..xxxxx" \
+#     --vault-id "ocid1.vault.oc1.region.xxxxx" \
+#     --secret-name "mcp-slack-signing-secret" \
+#     --key-id "ocid1.key.oc1.region.xxxxx" \
+#     --secret-content-content "$(echo -n 'your-signing-secret' | base64)"
+#
+# App token (for Socket Mode):
+#   oci vault secret create-base64 \
+#     --compartment-id "ocid1.compartment.oc1..xxxxx" \
+#     --vault-id "ocid1.vault.oc1.region.xxxxx" \
+#     --secret-name "mcp-slack-app-token" \
+#     --key-id "ocid1.key.oc1.region.xxxxx" \
+#     --secret-content-content "$(echo -n 'xapp-your-app-token' | base64)"
+
+# Example: Using Slack SDK in your MCP server
+# Your server code might look like:
+#
+# import { WebClient } from '@slack/web-api';
+#
+# const client = new WebClient(process.env.SLACK_BOT_TOKEN);
+#
+# const result = await client.chat.postMessage({
+#   channel: 'C1234567890',
+#   text: 'Hello from MCP!',
+# });
+
+# Multi-workspace setup:
+# If managing multiple Slack workspaces, create separate configs:
+#
+# slack-workspace-a.yaml:
+#   env:
+#     SLACK_BOT_TOKEN: "vault://mcp-slack-workspace-a-bot-token"
+#     SLACK_SIGNING_SECRET: "vault://mcp-slack-workspace-a-signing-secret"
+#
+# slack-workspace-b.yaml:
+#   env:
+#     SLACK_BOT_TOKEN: "vault://mcp-slack-workspace-b-bot-token"
+#     SLACK_SIGNING_SECRET: "vault://mcp-slack-workspace-b-signing-secret"

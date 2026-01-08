@@ -1,6 +1,8 @@
 # OCI Vault MCP Resolver
 
-**Secure secrets management for Docker MCP Gateway using Oracle Cloud Infrastructure Vault**
+**Version 2.0.0**
+
+**Secure secrets management for Docker MCP Gateway and standalone applications using Oracle Cloud Infrastructure Vault**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -98,26 +100,38 @@ graph LR
 
 ### Installation
 
+**Automated Installation (Recommended)**
+
 ```bash
 # Clone the repository
 git clone https://github.com/acedergren/oci-vault-mcp-resolver.git
 cd oci-vault-mcp-resolver
 
-# Install dependencies
-pip3 install -r requirements.txt
+# Run the installer (installs dependencies and configures environment)
+./scripts/install.sh
 
 # Verify installation
 python3 -c "import oci; print(f'OCI SDK {oci.__version__}')"
 ```
 
+**Manual Installation**
+
+```bash
+# Install Python dependencies
+pip3 install -r requirements.txt
+
+# Make scripts executable
+chmod +x upload-secret.sh scripts/*.sh
+```
+
 ### Basic Usage
 
 ```bash
-# Create a secret in OCI Vault
-./upload-secret.sh my-secret-name "my-secret-value"
+# Create a secret in OCI Vault (use naming conventions from NAMING_CONVENTIONS.md)
+./upload-secret.sh mcp-github-token-dev "ghp_abc123..."
 
 # Add vault reference to your config
-echo 'api_key: oci-vault://ocid1.compartment.oc1..xxx/my-secret-name' > config.yaml
+echo 'github_token: oci-vault://ocid1.compartment.oc1..xxx/mcp-github-token-dev' > config.yaml
 
 # Resolve secrets
 python3 oci_vault_resolver.py -i config.yaml -o resolved-config.yaml
@@ -160,28 +174,40 @@ db_password: oci-vault://ocid1.vault.oc1.iad.xxx/db-password
 
 ## Configuration Examples
 
-### Example 1: Docker MCP Gateway Configuration
+### Example 1: Docker MCP Gateway - Multiple Services
 
 ```yaml
 # ~/.docker/mcp-config.yaml
 servers:
+  # GitHub MCP Server
+  github:
+    secrets:
+      github.personal_access_token: oci-vault://ocid1.compartment.oc1..xxx/mcp-github-token-prod
+
+  # Sentry MCP Server
+  sentry:
+    config:
+      SENTRY_ORG: my-organization
+      SENTRY_PROJECT: my-project
+      SENTRY_AUTH_TOKEN: oci-vault://ocid1.compartment.oc1..xxx/mcp-sentry-auth-token-prod
+
+  # Snyk MCP Server
+  snyk:
+    config:
+      SNYK_TOKEN: oci-vault://ocid1.compartment.oc1..xxx/mcp-snyk-api-token-prod
+
+  # Prometheus MCP Server
   prometheus:
     config:
       PROMETHEUS_URL: http://localhost:9090
-      # Fetch API token from vault
-      API_TOKEN: oci-vault://ocid1.compartment.oc1..xxx/prometheus-token
+      API_TOKEN: oci-vault://ocid1.compartment.oc1..xxx/mcp-prometheus-token-prod
 
-  github:
-    secrets:
-      # GitHub PAT from vault
-      github.personal_access_token: oci-vault://ocid1.vaultsecret.oc1.iad.xxx
-
-  database:
+  # PostgreSQL Database
+  postgres:
     config:
-      DB_HOST: postgres.example.com
-      DB_USER: admin
-      # Password from vault
-      DB_PASSWORD: oci-vault://ocid1.compartment.oc1..xxx/db-password
+      POSTGRES_HOST: db.example.com
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: oci-vault://ocid1.compartment.oc1..xxx/mcp-postgres-password-prod
 ```
 
 **Resolve and apply:**
@@ -199,16 +225,24 @@ database:
   host: postgres.production.com
   port: 5432
   username: app_user
-  password: oci-vault://ocid1.compartment.oc1..prod/db-password
+  password: oci-vault://ocid1.compartment.oc1..prod/app-postgres-password-prod
 
 api:
-  endpoint: https://api.example.com
-  key: oci-vault://ocid1.vault.oc1.iad.production/api-key
-  timeout: 30
+  openai:
+    endpoint: https://api.openai.com/v1
+    key: oci-vault://ocid1.vault.oc1.iad.production/app-openai-api-key-prod
+    timeout: 30
+
+  anthropic:
+    endpoint: https://api.anthropic.com/v1
+    key: oci-vault://ocid1.vault.oc1.iad.production/app-anthropic-api-key-prod
 
 oauth:
   client_id: my-oauth-client
-  client_secret: oci-vault://ocid1.compartment.oc1..prod/oauth-secret
+  client_secret: oci-vault://ocid1.compartment.oc1..prod/app-oauth-client-secret-prod
+
+monitoring:
+  sentry_dsn: oci-vault://ocid1.compartment.oc1..prod/app-sentry-dsn-prod
 ```
 
 **Resolve for application:**
@@ -217,15 +251,49 @@ python3 oci_vault_resolver.py -i config/app.yaml -o config/app-resolved.yaml
 python app.py --config config/app-resolved.yaml
 ```
 
-### Example 3: CI/CD Secrets
+### Example 3: CI/CD Pipeline Secrets
 
 ```yaml
 # .github/config.yaml
 deployment:
-  aws_access_key_id: oci-vault://ocid1.compartment.oc1..cicd/aws-access-key
-  aws_secret_access_key: oci-vault://ocid1.compartment.oc1..cicd/aws-secret-key
-  docker_hub_token: oci-vault://ocid1.vaultsecret.oc1.iad.xxx
+  aws:
+    access_key_id: oci-vault://ocid1.compartment.oc1..cicd/cicd-aws-access-key-prod
+    secret_access_key: oci-vault://ocid1.compartment.oc1..cicd/cicd-aws-secret-key-prod
+    region: us-west-2
+
+  docker:
+    registry: docker.io
+    username: myorg
+    token: oci-vault://ocid1.vaultsecret.oc1.iad.xxx/cicd-docker-hub-token-prod
+
+  notifications:
+    slack_webhook: oci-vault://ocid1.compartment.oc1..cicd/cicd-slack-webhook-prod
 ```
+
+## Secret Naming Conventions
+
+This project follows standardized naming conventions for secrets stored in OCI Vault. The naming pattern helps with:
+
+- **Discoverability** - Find related secrets easily
+- **Access Control** - Apply IAM policies by naming patterns
+- **Multi-Environment** - Support dev/staging/prod deployments
+- **Clarity** - Understand secret purpose at a glance
+
+### Standard Format
+
+```
+{project}-{service}-{secret-type}-{env}
+```
+
+**Examples:**
+```bash
+mcp-github-token-prod           # GitHub PAT for MCP Gateway (production)
+mcp-sentry-auth-token-dev       # Sentry auth token (development)
+app-postgres-password-prod      # PostgreSQL password for application
+cicd-aws-secret-key-prod        # AWS secret key for CI/CD pipeline
+```
+
+**Full Documentation:** See [docs/NAMING_CONVENTIONS.md](docs/NAMING_CONVENTIONS.md) for comprehensive guidance with 170+ examples covering all major services and use cases.
 
 ## Authentication Methods
 
@@ -383,22 +451,6 @@ export OCI_REGION="eu-frankfurt-1"
 
 ## Integration Guides
 
-### Docker MCP Gateway
-
-```bash
-# Install wrapper script
-chmod +x mcp-with-vault
-
-# Resolve and apply configuration
-./mcp-with-vault
-
-# Dry run (preview only)
-./mcp-with-vault --dry-run
-
-# Resolve and start gateway
-./mcp-with-vault --start
-```
-
 ### GitHub Actions
 
 ```yaml
@@ -453,15 +505,33 @@ deploy:
 
 ### Claude Code Integration
 
-See [CLAUDE_CODE_INTEGRATION.md](CLAUDE_CODE_INTEGRATION.md) for comprehensive guide on using this tool with Claude Code and remote development environments.
+For comprehensive guide on using this tool with Claude Code and remote development environments, see [CLAUDE_CODE_INTEGRATION.md](CLAUDE_CODE_INTEGRATION.md).
 
 **Quick example:**
 ```bash
-# Export GitHub token for Claude Code MCP
+# Export secrets as environment variables for Claude Code
 source scripts/export-github-token.sh
 
 # Verify
 echo $GITHUB_PERSONAL_ACCESS_TOKEN
+```
+
+### Docker MCP Gateway Wrapper
+
+Use the included wrapper script for seamless integration:
+
+```bash
+# Install and configure
+./scripts/install.sh
+
+# Resolve and apply configuration (one-time)
+./wrappers/mcp-with-vault
+
+# Dry run (preview only)
+./wrappers/mcp-with-vault --dry-run
+
+# Resolve and start gateway
+./wrappers/mcp-with-vault --start
 ```
 
 ## Error Handling
@@ -901,11 +971,26 @@ See [LICENSE](LICENSE) for full license text.
 
 ### Documentation
 
-- **Quick Start**: [QUICKSTART.md](QUICKSTART.md)
-- **API Reference**: [API_REFERENCE.md](API_REFERENCE.md)
-- **Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md)
-- **Claude Code Integration**: [CLAUDE_CODE_INTEGRATION.md](CLAUDE_CODE_INTEGRATION.md)
-- **Code Explained**: [CODE_EXPLAINED.md](CODE_EXPLAINED.md)
+**Getting Started:**
+- **Quick Start**: [QUICKSTART.md](QUICKSTART.md) - Get up and running in 5 minutes
+- **Installation**: Use `./scripts/install.sh` for automated setup
+
+**Core Documentation:**
+- **API Reference**: [API_REFERENCE.md](API_REFERENCE.md) - Complete API documentation
+- **Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md) - System design and components
+- **Code Explained**: [CODE_EXPLAINED.md](CODE_EXPLAINED.md) - Detailed code walkthrough
+
+**Best Practices:**
+- **Naming Conventions**: [docs/NAMING_CONVENTIONS.md](docs/NAMING_CONVENTIONS.md) - Secret naming standards with 170+ examples for GitHub, Sentry, Snyk, AWS, and more
+- **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md) - Development setup and guidelines
+
+**Integrations:**
+- **Docker MCP Gateway**: [DOCKER_MCP_INTEGRATION.md](DOCKER_MCP_INTEGRATION.md) - MCP Gateway integration guide
+- **Claude Code**: [CLAUDE_CODE_INTEGRATION.md](CLAUDE_CODE_INTEGRATION.md) - Remote development with Claude Code
+- **SDK Implementation**: [SDK_IMPLEMENTATION.md](SDK_IMPLEMENTATION.md) - Using as a Python library
+
+**Testing:**
+- **Integration Tests**: [tests/INTEGRATION_TESTING.md](tests/INTEGRATION_TESTING.md) - Test suite documentation
 
 ### Resources
 

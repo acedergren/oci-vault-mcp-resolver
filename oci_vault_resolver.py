@@ -24,6 +24,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import random
 import re
 import sys
@@ -300,6 +301,8 @@ class VaultResolver:
         max_retries: int = DEFAULT_MAX_RETRIES,
         enable_circuit_breaker: bool = True,
         circuit_breaker_threshold: int = 5,
+        default_compartment_id: Optional[str] = None,
+        default_vault_id: Optional[str] = None,
     ):
         """
         Initialize SDK-based resolver.
@@ -314,10 +317,14 @@ class VaultResolver:
             max_retries: Maximum retry attempts for API calls
             enable_circuit_breaker: Enable circuit breaker pattern
             circuit_breaker_threshold: Failures before opening circuit
+            default_compartment_id: Default compartment OCID for secret lookups
+            default_vault_id: Default vault OCID
         """
         self.cache_dir = cache_dir
         self.ttl = ttl
         self.verbose = verbose
+        self.default_compartment_id = default_compartment_id
+        self.default_vault_id = default_vault_id
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Configure logging
@@ -371,6 +378,145 @@ class VaultResolver:
 
         except Exception as e:
             raise AuthenticationError(f"Failed to initialize OCI SDK clients: {e}")
+
+    @classmethod
+    def from_config(cls, config_path: Optional[Path] = None) -> "VaultResolver":  # noqa: C901
+        """
+        Create VaultResolver from configuration file.
+
+        Searches for config in priority order:
+          1. Specified config_path
+          2. ~/.config/oci-vault-mcp/resolver.yaml (user-level)
+          3. /etc/oci-vault-mcp/resolver.yaml (system-level)
+          4. ./resolver.yaml (current directory)
+
+        Environment variables override config file settings:
+          - OCI_VAULT_ID → vault.vault_id
+          - OCI_VAULT_COMPARTMENT_ID → vault.compartment_id
+          - OCI_REGION → vault.region
+          - OCI_USE_INSTANCE_PRINCIPALS → vault.auth_method
+          - OCI_CONFIG_FILE → vault.config_file
+          - OCI_CONFIG_PROFILE → vault.config_profile
+          - OCI_VAULT_CACHE_DIR → cache.directory
+          - OCI_VAULT_CACHE_TTL → cache.ttl
+          - OCI_VAULT_ENVIRONMENT → select environment
+
+        Args:
+            config_path: Optional path to config file (overrides search)
+
+        Returns:
+            Configured VaultResolver instance
+
+        Raises:
+            ConfigurationError: If no config file found or invalid config
+        """
+        # Search for config file
+        search_paths = [
+            config_path,
+            Path.home() / ".config" / "oci-vault-mcp" / "resolver.yaml",
+            Path("/etc/oci-vault-mcp/resolver.yaml"),
+            Path("./resolver.yaml"),
+        ]
+
+        config_file_path = None
+        for path in search_paths:
+            if path and path.exists():
+                config_file_path = path
+                break
+
+        if not config_file_path:
+            raise ConfigurationError(
+                "No resolver.yaml found in search paths:\n"
+                "  1. ~/.config/oci-vault-mcp/resolver.yaml (user-level)\n"
+                "  2. /etc/oci-vault-mcp/resolver.yaml (system-level)\n"
+                "  3. ./resolver.yaml (current directory)\n"
+                "Run: cp config/resolver.yaml.example ~/.config/oci-vault-mcp/resolver.yaml"
+            )
+
+        # Load YAML config
+        try:
+            with open(config_file_path, "r") as f:
+                config = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ConfigurationError(f"Failed to parse YAML config: {e}")
+        except Exception as e:
+            raise ConfigurationError(f"Failed to read config file: {e}")
+
+        if not config or not isinstance(config, dict):
+            raise ConfigurationError("Configuration must be a non-empty dictionary")
+
+        # Extract environment name from env var or config
+        environment = os.environ.get("OCI_VAULT_ENVIRONMENT")
+
+        # Apply environment-specific overrides
+        if environment and environment in config.get("environments", {}):
+            env_config = config["environments"][environment]
+
+            # Deep merge environment config into base config
+            def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+                """Recursively merge override into base."""
+                result = base.copy()
+                for key, value in override.items():
+                    if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                        result[key] = deep_merge(result[key], value)
+                    else:
+                        result[key] = value
+                return result
+
+            config = deep_merge(config, env_config)
+
+        # Get vault settings with environment variable overrides
+        vault_config = config.get("vault", {})
+        vault_id = os.environ.get("OCI_VAULT_ID") or vault_config.get("vault_id")
+        compartment_id = os.environ.get("OCI_VAULT_COMPARTMENT_ID") or vault_config.get(
+            "compartment_id"
+        )
+        _ = os.environ.get("OCI_REGION") or vault_config.get("region")  # noqa: F841
+
+        # Auth method
+        use_instance_principals = (
+            os.environ.get("OCI_USE_INSTANCE_PRINCIPALS", "").lower() == "true"
+            or vault_config.get("auth_method") == "instance_principal"
+        )
+        config_file = os.environ.get("OCI_CONFIG_FILE") or vault_config.get("config_file")
+        config_profile = os.environ.get("OCI_CONFIG_PROFILE") or vault_config.get(
+            "config_profile", "DEFAULT"
+        )
+
+        # Cache settings
+        cache_config = config.get("cache", {})
+        cache_dir_str = os.environ.get("OCI_VAULT_CACHE_DIR") or cache_config.get(
+            "directory", "~/.cache/oci-vault-mcp"
+        )
+        cache_dir = Path(cache_dir_str).expanduser()
+
+        cache_ttl_str = os.environ.get("OCI_VAULT_CACHE_TTL")
+        cache_ttl = int(cache_ttl_str) if cache_ttl_str else cache_config.get("ttl", DEFAULT_TTL)
+
+        # Resilience settings
+        resilience_config = config.get("resilience", {})
+        max_retries = resilience_config.get("max_retries", DEFAULT_MAX_RETRIES)
+        enable_circuit_breaker = resilience_config.get("enable_circuit_breaker", True)
+        circuit_breaker_threshold = resilience_config.get("circuit_breaker_threshold", 5)
+
+        # Logging settings
+        logging_config = config.get("logging", {})
+        verbose = logging_config.get("verbose", False)
+
+        # Create and return VaultResolver instance
+        return cls(
+            cache_dir=cache_dir,
+            ttl=cache_ttl,
+            verbose=verbose,
+            use_instance_principals=use_instance_principals,
+            config_file=config_file,
+            config_profile=config_profile,
+            max_retries=max_retries,
+            enable_circuit_breaker=enable_circuit_breaker,
+            circuit_breaker_threshold=circuit_breaker_threshold,
+            default_compartment_id=compartment_id,
+            default_vault_id=vault_id,
+        )
 
     def log(self, message: str) -> None:
         """Log message if verbose mode is enabled."""

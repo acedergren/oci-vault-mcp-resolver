@@ -1,0 +1,71 @@
+# Anthropic API Configuration
+# This example demonstrates API key management for Claude API access
+#
+# Usage:
+#   node /path/to/oci-vault-mcp-resolver/wrappers/wrapper.js \
+#     --config /path/to/this/anthropic.yaml
+#
+# Or with Docker MCP Gateway:
+#   "anthropic": {
+#     "command": "docker",
+#     "args": [
+#       "exec", "mcp-gateway",
+#       "node", "/app/wrappers/wrapper.js",
+#       "--config", "/app/config/anthropic.yaml"
+#     ]
+#   }
+
+# Example: Custom script that uses Anthropic API
+# Replace with your actual MCP server command
+command: node
+args:
+  - "/path/to/your/anthropic-mcp-server.js"
+
+# Anthropic API configuration with vault secret
+# Pattern: vault://mcp-{service}-{type}
+env:
+  # Anthropic API Key (required)
+  # Get your key at: https://console.anthropic.com/settings/keys
+  ANTHROPIC_API_KEY: "vault://mcp-anthropic-api-key"
+
+  # Optional: Base URL for API (defaults to https://api.anthropic.com)
+  # ANTHROPIC_BASE_URL: "https://api.anthropic.com"
+
+  # Optional: API version
+  # ANTHROPIC_VERSION: "2023-06-01"
+
+  # Optional: Organization ID (for enterprise accounts)
+  # ANTHROPIC_ORG_ID: "vault://mcp-anthropic-org-id"
+
+# Alternative: Environment variable fallback for local development
+#
+# env:
+#   ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+#
+# Then set in your shell:
+#   export ANTHROPIC_API_KEY="sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Example: Using Anthropic SDK in your MCP server
+# Your server code might look like:
+#
+# import Anthropic from '@anthropic-ai/sdk';
+#
+# const client = new Anthropic({
+#   apiKey: process.env.ANTHROPIC_API_KEY,
+# });
+#
+# const message = await client.messages.create({
+#   model: 'claude-3-5-sonnet-20241022',
+#   max_tokens: 1024,
+#   messages: [{ role: 'user', content: 'Hello, Claude!' }],
+# });
+
+# Vault secret creation:
+# Store your Anthropic API key in OCI Vault:
+#
+#   oci vault secret create-base64 \
+#     --compartment-id "ocid1.compartment.oc1..xxxxx" \
+#     --vault-id "ocid1.vault.oc1.region.xxxxx" \
+#     --secret-name "mcp-anthropic-api-key" \
+#     --key-id "ocid1.key.oc1.region.xxxxx" \
+#     --secret-content-content "$(echo -n 'sk-ant-api03-xxx' | base64)"

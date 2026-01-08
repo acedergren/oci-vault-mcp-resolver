@@ -1,0 +1,90 @@
+# OpenAI API Configuration
+# This example demonstrates API key management for OpenAI/ChatGPT access
+#
+# Usage:
+#   node /path/to/oci-vault-mcp-resolver/wrappers/wrapper.js \
+#     --config /path/to/this/openai.yaml
+#
+# Or with Docker MCP Gateway:
+#   "openai": {
+#     "command": "docker",
+#     "args": [
+#       "exec", "mcp-gateway",
+#       "node", "/app/wrappers/wrapper.js",
+#       "--config", "/app/config/openai.yaml"
+#     ]
+#   }
+
+# Example: Custom script that uses OpenAI API
+# Replace with your actual MCP server command
+command: node
+args:
+  - "/path/to/your/openai-mcp-server.js"
+
+# OpenAI API configuration with vault secret
+# Pattern: vault://mcp-{service}-{type}
+env:
+  # OpenAI API Key (required)
+  # Get your key at: https://platform.openai.com/api-keys
+  OPENAI_API_KEY: "vault://mcp-openai-api-key"
+
+  # Optional: Organization ID (for team accounts)
+  # OPENAI_ORG_ID: "vault://mcp-openai-org-id"
+
+  # Optional: Base URL (for Azure OpenAI or custom endpoints)
+  # OPENAI_BASE_URL: "https://your-resource.openai.azure.com"
+
+  # Optional: API version (for Azure OpenAI)
+  # OPENAI_API_VERSION: "2024-02-15-preview"
+
+# Alternative: Environment variable fallback for local development
+#
+# env:
+#   OPENAI_API_KEY: "${OPENAI_API_KEY}"
+#   OPENAI_ORG_ID: "${OPENAI_ORG_ID}"
+#
+# Then set in your shell:
+#   export OPENAI_API_KEY="sk-proj-xxxxxxxxxxxxxxxxxxxxxxxx"
+#   export OPENAI_ORG_ID="org-xxxxxxxxxxxxxxxx"
+
+# Example: Azure OpenAI configuration
+# When using Azure OpenAI service instead of OpenAI directly:
+#
+# env:
+#   AZURE_OPENAI_API_KEY: "vault://mcp-azure-openai-api-key"
+#   AZURE_OPENAI_ENDPOINT: "https://your-resource.openai.azure.com"
+#   AZURE_OPENAI_DEPLOYMENT: "gpt-4"
+#   AZURE_OPENAI_API_VERSION: "2024-02-15-preview"
+
+# Example: Using OpenAI SDK in your MCP server
+# Your server code might look like:
+#
+# import OpenAI from 'openai';
+#
+# const client = new OpenAI({
+#   apiKey: process.env.OPENAI_API_KEY,
+#   organization: process.env.OPENAI_ORG_ID,
+# });
+#
+# const completion = await client.chat.completions.create({
+#   model: 'gpt-4-turbo-preview',
+#   messages: [{ role: 'user', content: 'Hello, GPT!' }],
+# });
+
+# Vault secret creation:
+# Store your OpenAI API key in OCI Vault:
+#
+#   oci vault secret create-base64 \
+#     --compartment-id "ocid1.compartment.oc1..xxxxx" \
+#     --vault-id "ocid1.vault.oc1.region.xxxxx" \
+#     --secret-name "mcp-openai-api-key" \
+#     --key-id "ocid1.key.oc1.region.xxxxx" \
+#     --secret-content-content "$(echo -n 'sk-proj-xxx' | base64)"
+#
+# For organization ID:
+#   oci vault secret create-base64 \
+#     --compartment-id "ocid1.compartment.oc1..xxxxx" \
+#     --vault-id "ocid1.vault.oc1.region.xxxxx" \
+#     --secret-name "mcp-openai-org-id" \
+#     --key-id "ocid1.key.oc1.region.xxxxx" \
+#     --secret-content-content "$(echo -n 'org-xxxxxxxx' | base64)"
