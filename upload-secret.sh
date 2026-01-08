@@ -64,7 +64,7 @@ Examples:
 
 Environment variables required:
   OCI_VAULT_COMPARTMENT_ID - Compartment OCID
-  OCI_VAULT_ID             - Vault OCID  
+  OCI_VAULT_ID             - Vault OCID
   OCI_REGION               - OCI region"
 fi
 
@@ -167,20 +167,20 @@ SECRET_BASE64=$(echo -n "$SECRET_VALUE" | base64 -w 0)
 if [ -n "$EXISTING_SECRET" ] && [ "$EXISTING_SECRET" != "null" ]; then
     # Update existing secret
     warn "Secret '$SECRET_NAME' already exists. Updating..."
-    
+
     RESULT=$(oci vault secret update-base64 \
         --secret-id "$EXISTING_SECRET" \
         --secret-content-content "$SECRET_BASE64" \
         --region "$OCI_REGION" \
         --query 'data.id' \
         --raw-output)
-    
+
     info "✓ Updated secret '$SECRET_NAME'"
     info "  Secret OCID: $RESULT"
 else
     # Create new secret
     echo "Creating new secret..."
-    
+
     RESULT=$(oci vault secret create-base64 \
         --compartment-id "$OCI_VAULT_COMPARTMENT_ID" \
         --vault-id "$OCI_VAULT_ID" \
@@ -190,7 +190,7 @@ else
         --region "$OCI_REGION" \
         --query 'data.id' \
         --raw-output)
-    
+
     info "✓ Created secret '$SECRET_NAME'"
     info "  Secret OCID: $RESULT"
 fi
