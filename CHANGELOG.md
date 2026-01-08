@@ -8,10 +8,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Secret versioning support
 - Distributed cache backends (Redis, Memcached)
 - Metrics export (Prometheus integration)
 - Auto-refresh and secret rotation detection
+
+## [1.3.0] - 2026-01-08
+
+### Added - Phase 3: Resilience & Advanced Features
+- **Circuit Breaker Pattern** - Prevents cascading failures
+  - Configurable failure threshold (default: 5 failures)
+  - Automatic recovery timeout (default: 60 seconds)
+  - State machine with CLOSED/OPEN/HALF_OPEN states
+  - Success threshold for closing circuit from half-open (default: 2)
+  - Circuit breaker open count metric tracking
+- **Retry with Exponential Backoff** - Intelligent retry strategy
+  - Configurable max retries (default: 3 attempts)
+  - Exponential backoff with base delay doubling (2^attempt seconds)
+  - Random jitter (±25%) to prevent thundering herd
+  - Retry only on retryable OCI ServiceError exceptions
+  - Retry count metric tracking
+- **Secret Versioning Support** - Retrieve specific secret versions
+  - Version specification via query parameter: `oci-vault://secret-ocid?version=2`
+  - Works with all URL formats (OCID, compartment+name, vault+name)
+  - Default behavior: fetch latest version when not specified
+  - Independent caching per version number
+- **Enhanced VaultResolver API** - New constructor parameters
+  - `max_retries` - Maximum retry attempts (default: 3)
+  - `enable_circuit_breaker` - Enable circuit breaker (default: True)
+  - `circuit_breaker_threshold` - Failures before opening (default: 5)
+- **Enhanced Metrics** - Additional tracking
+  - `retries` - Total number of retry attempts
+  - `circuit_breaker_opens` - Number of times circuit opened
+- **Comprehensive Testing** - 20 parser tests including 4 new version tests
+  - Version parameter parsing validation
+  - Invalid version handling tests
+  - Multiple query parameter support
+
+### Changed
+- `parse_vault_url()` now returns 4-tuple: `(ocid, compartment, name, version)`
+- `fetch_secret_by_ocid()` accepts optional `version_number` parameter
+- `resolve_secret()` supports version parameter from URL query string
 
 ## [1.2.0] - 2026-01-08
 

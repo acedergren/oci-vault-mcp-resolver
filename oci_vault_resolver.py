@@ -24,11 +24,13 @@ import asyncio
 import base64
 import json
 import logging
+import random
 import re
 import sys
 import time
+from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
 import yaml
 
@@ -113,6 +115,168 @@ DEFAULT_CACHE_DIR = Path.home() / ".cache" / "oci-vault-mcp"
 DEFAULT_TTL = 3600  # 1 hour in seconds
 VAULT_URL_PATTERN = re.compile(r"^oci-vault://(.+)$")
 
+# Retry configuration
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_BACKOFF_BASE = 2  # seconds
+DEFAULT_RETRY_JITTER = True
+
+
+class CircuitBreakerState(Enum):
+    """Circuit breaker states."""
+
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing, reject requests
+    HALF_OPEN = "half_open"  # Testing if service recovered
+
+
+class CircuitBreaker:
+    """
+    Circuit breaker pattern for OCI Vault API calls.
+
+    Prevents cascading failures by opening the circuit after threshold failures.
+    """
+
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        recovery_timeout: float = 60.0,
+        success_threshold: int = 2,
+    ):
+        """
+        Initialize circuit breaker.
+
+        Args:
+            failure_threshold: Number of failures before opening circuit
+            recovery_timeout: Seconds to wait before attempting recovery
+            success_threshold: Successful calls needed to close circuit from half-open
+        """
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.success_threshold = success_threshold
+
+        self.failure_count = 0
+        self.success_count = 0
+        self.last_failure_time: Optional[float] = None
+        self.state = CircuitBreakerState.CLOSED
+
+        self.logger = logging.getLogger(__name__)
+
+    def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """
+        Execute function with circuit breaker protection.
+
+        Args:
+            func: Function to call
+            *args: Positional arguments
+            **kwargs: Keyword arguments
+
+        Returns:
+            Function result
+
+        Raises:
+            VaultResolverError: If circuit is open
+        """
+        if self.state == CircuitBreakerState.OPEN:
+            if self._should_attempt_reset():
+                self.logger.info("Circuit breaker transitioning to HALF_OPEN")
+                self.state = CircuitBreakerState.HALF_OPEN
+            else:
+                raise VaultResolverError(
+                    f"Circuit breaker is OPEN (recovery timeout: {self.recovery_timeout}s)"
+                )
+
+        try:
+            result = func(*args, **kwargs)
+            self._on_success()
+            return result
+        except Exception as e:
+            self._on_failure()
+            raise e
+
+    def _should_attempt_reset(self) -> bool:
+        """Check if enough time has passed to attempt recovery."""
+        if self.last_failure_time is None:
+            return False
+        return (time.time() - self.last_failure_time) >= self.recovery_timeout
+
+    def _on_success(self) -> None:
+        """Handle successful call."""
+        self.failure_count = 0
+
+        if self.state == CircuitBreakerState.HALF_OPEN:
+            self.success_count += 1
+            if self.success_count >= self.success_threshold:
+                self.logger.info("Circuit breaker transitioning to CLOSED")
+                self.state = CircuitBreakerState.CLOSED
+                self.success_count = 0
+
+    def _on_failure(self) -> None:
+        """Handle failed call."""
+        self.failure_count += 1
+        self.last_failure_time = time.time()
+        self.success_count = 0
+
+        if self.failure_count >= self.failure_threshold:
+            if self.state != CircuitBreakerState.OPEN:
+                self.logger.warning(
+                    f"Circuit breaker transitioning to OPEN after {self.failure_count} failures"
+                )
+                self.state = CircuitBreakerState.OPEN
+
+
+def retry_with_backoff(
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    backoff_base: float = DEFAULT_RETRY_BACKOFF_BASE,
+    jitter: bool = DEFAULT_RETRY_JITTER,
+    retryable_exceptions: Tuple[type, ...] = (Exception,),
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """
+    Decorate functions with exponential backoff retry logic.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        backoff_base: Base delay in seconds (doubled each retry)
+        jitter: Add random jitter to backoff delay
+        retryable_exceptions: Tuple of exception types to retry on
+
+    Returns:
+        Decorated function
+    """
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            logger = logging.getLogger(__name__)
+            last_exception = None
+
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except retryable_exceptions as e:  # type: ignore[misc]
+                    last_exception = e
+
+                    # Don't retry on last attempt
+                    if attempt >= max_retries:
+                        break
+
+                    # Calculate backoff delay
+                    delay = backoff_base * (2**attempt)
+                    if jitter:
+                        # Add random jitter (±25%)
+                        delay *= 0.75 + (random.random() * 0.5)
+
+                    logger.warning(
+                        f"Retry {attempt + 1}/{max_retries} after {delay:.2f}s due to: {e}"
+                    )
+                    time.sleep(delay)
+
+            # All retries exhausted
+            logger.error(f"Max retries ({max_retries}) exhausted")
+            raise last_exception  # type: ignore
+
+        return wrapper
+
+    return decorator
+
 
 class VaultResolver:
     """
@@ -133,6 +297,9 @@ class VaultResolver:
         use_instance_principals: bool = False,
         config_file: Optional[str] = None,
         config_profile: str = "DEFAULT",
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        enable_circuit_breaker: bool = True,
+        circuit_breaker_threshold: int = 5,
     ):
         """
         Initialize SDK-based resolver.
@@ -144,6 +311,9 @@ class VaultResolver:
             use_instance_principals: Use instance principal authentication (for OCI VMs)
             config_file: Path to OCI config file (default: ~/.oci/config)
             config_profile: Config profile to use
+            max_retries: Maximum retry attempts for API calls
+            enable_circuit_breaker: Enable circuit breaker pattern
+            circuit_breaker_threshold: Failures before opening circuit
         """
         self.cache_dir = cache_dir
         self.ttl = ttl
@@ -157,6 +327,19 @@ class VaultResolver:
         else:
             self.logger.setLevel(logging.INFO)
 
+        # Retry configuration
+        self.max_retries = max_retries
+
+        # Circuit breaker
+        self.circuit_breaker: Optional[CircuitBreaker] = None
+        if enable_circuit_breaker:
+            self.circuit_breaker = CircuitBreaker(
+                failure_threshold=circuit_breaker_threshold,
+                recovery_timeout=60.0,
+                success_threshold=2,
+            )
+            self.logger.debug(f"Circuit breaker enabled (threshold: {circuit_breaker_threshold})")
+
         # Performance metrics
         self.metrics = {
             "secrets_fetched": 0,
@@ -164,6 +347,8 @@ class VaultResolver:
             "cache_misses": 0,
             "stale_cache_used": 0,
             "total_fetch_time": 0.0,
+            "retries": 0,
+            "circuit_breaker_opens": 0,
         }
 
         # Initialize OCI clients
@@ -191,40 +376,61 @@ class VaultResolver:
         """Log message if verbose mode is enabled."""
         self.logger.debug(message)
 
-    def parse_vault_url(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    def parse_vault_url(  # noqa: C901
+        self, url: str
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[int]]:
         """
         Parse oci-vault:// URL into components.
 
-        Returns: (secret_ocid, compartment_id, secret_name) or (None, None, None)
+        Supports version specification: oci-vault://secret-ocid?version=2
+
+        Returns:
+            Tuple of (secret_ocid, compartment_id, secret_name, version_number)
+            or (None, None, None, None) if invalid
         """
         match = VAULT_URL_PATTERN.match(url)
         if not match:
-            return None, None, None
+            return None, None, None, None
 
         path = match.group(1)
+
+        # Extract version from query string (e.g., oci-vault://secret?version=2)
+        version_number: Optional[int] = None
+        if "?" in path:
+            path, query_string = path.split("?", 1)
+            # Parse query parameters
+            for param in query_string.split("&"):
+                if "=" in param:
+                    key, value = param.split("=", 1)
+                    if key == "version":
+                        try:
+                            version_number = int(value)
+                        except ValueError:
+                            self.logger.warning(f"Invalid version number: {value}")
+
         parts = path.split("/")
 
         # Format: oci-vault://secret-ocid
         if len(parts) == 1:
             if parts[0].startswith("ocid1.vaultsecret."):
-                return parts[0], None, None
+                return parts[0], None, None, version_number
             else:
                 # Treat as secret name in default compartment
-                return None, None, parts[0]
+                return None, None, parts[0], version_number
 
         # Format: oci-vault://compartment-or-vault-id/secret-name
         elif len(parts) == 2:
             container_id, secret_name = parts
             if container_id.startswith("ocid1.compartment."):
-                return None, container_id, secret_name
+                return None, container_id, secret_name, version_number
             elif container_id.startswith("ocid1.vault."):
                 # For vault OCID, we need to list secrets in that vault
-                return None, container_id, secret_name
+                return None, container_id, secret_name, version_number
             else:
                 # Treat first part as compartment name
-                return None, container_id, secret_name
+                return None, container_id, secret_name, version_number
 
-        return None, None, None
+        return None, None, None, None
 
     def get_cache_path(self, cache_key: str) -> Path:
         """Get cache file path for a cache key."""
@@ -289,23 +495,84 @@ class VaultResolver:
         except Exception as e:
             self.log(f"Cache write error: {e}")
 
-    def fetch_secret_by_ocid(self, secret_ocid: str) -> Optional[str]:
-        """Fetch secret value from OCI Vault by secret OCID using SDK."""
+    def _fetch_secret_with_retry(
+        self, secret_ocid: str, version_number: Optional[int] = None
+    ) -> str:
+        """
+        Fetch secret with retry logic.
+
+        Args:
+            secret_ocid: Secret OCID to fetch
+            version_number: Optional version number to fetch
+
+        Returns:
+            Decoded secret value
+
+        Raises:
+            OCI ServiceError exceptions
+        """
+
+        @retry_with_backoff(
+            max_retries=self.max_retries,
+            backoff_base=DEFAULT_RETRY_BACKOFF_BASE,
+            jitter=DEFAULT_RETRY_JITTER,
+            retryable_exceptions=(oci.exceptions.ServiceError,),
+        )
+        def _fetch() -> str:
+            if version_number is not None:
+                response = self.secrets_client.get_secret_bundle(
+                    secret_id=secret_ocid, version_number=version_number
+                )
+            else:
+                response = self.secrets_client.get_secret_bundle(secret_id=secret_ocid)
+
+            content: str = response.data.secret_bundle_content.content
+            decoded_bytes = base64.b64decode(content)
+            return decoded_bytes.decode("utf-8")
+
+        # Track retries
+        initial_retries = self.metrics.get("retries", 0)
+        result: str = _fetch()
+        retries_used = self.metrics.get("retries", 0) - initial_retries
+        if retries_used > 0:
+            self.metrics["retries"] = self.metrics.get("retries", 0) + retries_used
+
+        return result
+
+    def fetch_secret_by_ocid(
+        self, secret_ocid: str, version_number: Optional[int] = None
+    ) -> Optional[str]:
+        """
+        Fetch secret value from OCI Vault by secret OCID using SDK.
+
+        Args:
+            secret_ocid: Secret OCID to fetch
+            version_number: Optional version number (defaults to latest)
+
+        Returns:
+            Decoded secret value or None on error
+        """
         start_time = time.time()
         try:
-            self.log(f"Fetching secret: {secret_ocid}")
+            version_msg = f" (version {version_number})" if version_number else ""
+            self.log(f"Fetching secret: {secret_ocid}{version_msg}")
 
-            # Direct SDK API call
-            response = self.secrets_client.get_secret_bundle(secret_id=secret_ocid)
-
-            # Extract and decode content
-            content = response.data.secret_bundle_content.content
-            decoded = base64.b64decode(content).decode("utf-8")
+            # Use circuit breaker if enabled
+            decoded: str
+            if self.circuit_breaker:
+                decoded = cast(
+                    str,
+                    self.circuit_breaker.call(
+                        self._fetch_secret_with_retry, secret_ocid, version_number
+                    ),
+                )
+            else:
+                decoded = self._fetch_secret_with_retry(secret_ocid, version_number)
 
             fetch_time = time.time() - start_time
             self.metrics["secrets_fetched"] += 1
             self.metrics["total_fetch_time"] += fetch_time
-            self.log(f"Successfully fetched: {secret_ocid} (took {fetch_time:.3f}s)")
+            self.log(f"Successfully fetched: {secret_ocid}{version_msg} (took {fetch_time:.3f}s)")
             return decoded
 
         except oci.exceptions.ServiceError as e:
@@ -322,6 +589,15 @@ class VaultResolver:
             else:
                 self.log(f"OCI API error: {e.message}")
                 raise VaultResolverError(f"OCI API error: {e.message}")
+
+        except VaultResolverError as e:
+            # Circuit breaker opened
+            if "Circuit breaker is OPEN" in str(e):
+                self.metrics["circuit_breaker_opens"] = (
+                    self.metrics.get("circuit_breaker_opens", 0) + 1
+                )
+                self.logger.warning(f"Circuit breaker OPEN, rejecting request for {secret_ocid}")
+            raise
 
         except Exception as e:
             self.log(f"Error fetching secret: {e}")
@@ -377,11 +653,12 @@ class VaultResolver:
             return value
         return None
 
-    def resolve_secret(self, vault_url: str) -> Optional[str]:
+    def resolve_secret(self, vault_url: str) -> Optional[str]:  # noqa: C901
         """
         Resolve a single oci-vault:// URL to its secret value.
 
         Uses caching and provides fallback to stale cache on errors.
+        Supports version specification: oci-vault://secret-ocid?version=2
         """
         cache_key = vault_url
 
@@ -392,8 +669,8 @@ class VaultResolver:
             if not is_stale:
                 return value
 
-        # Parse URL
-        secret_ocid, compartment_id, secret_name = self.parse_vault_url(vault_url)
+        # Parse URL (now returns version_number as 4th element)
+        secret_ocid, compartment_id, secret_name, version_number = self.parse_vault_url(vault_url)
 
         if not secret_ocid and not secret_name:
             self.logger.error(f"Invalid vault URL format: {vault_url}")
@@ -414,9 +691,9 @@ class VaultResolver:
                 )
                 return self._try_stale_cache_fallback(cached, vault_url, "Secret not found")
 
-        # Fetch secret value
+        # Fetch secret value (with optional version)
         try:
-            secret_value = self.fetch_secret_by_ocid(secret_ocid)
+            secret_value = self.fetch_secret_by_ocid(secret_ocid, version_number)
             if secret_value:
                 # Cache the result
                 self.cache_secret(cache_key, secret_value)

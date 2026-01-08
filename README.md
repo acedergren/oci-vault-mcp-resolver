@@ -47,6 +47,28 @@ graph LR
 - 🧪 **Integration Test Framework** - Comprehensive tests for real OCI environments
 - 📈 **Observability** - Performance logging with metrics summary in verbose mode
 
+### Resilience Features (Phase 3)
+
+- 🔄 **Circuit Breaker Pattern** - Prevents cascading failures by opening circuit after threshold failures
+  - Configurable failure threshold (default: 5 failures)
+  - Automatic recovery timeout (default: 60 seconds)
+  - Half-open state for testing recovery
+  - Metrics tracking for circuit opens
+- ⏱️ **Retry with Exponential Backoff** - Intelligent retry strategy for transient failures
+  - Configurable max retries (default: 3)
+  - Exponential backoff with base delay doubling (2^attempt seconds)
+  - Random jitter (±25%) to prevent thundering herd
+  - Retry only on retryable exceptions (OCI ServiceError)
+- 🔢 **Secret Versioning** - Support for specific secret version retrieval
+  - Version specification via query parameter: `oci-vault://secret-ocid?version=2`
+  - Works with all URL formats (OCID, compartment+name, vault+name)
+  - Default behavior: fetch latest version when no version specified
+  - Independent caching per version
+- 📊 **Enhanced Metrics** - Additional tracking for resilience patterns
+  - Retry count tracking
+  - Circuit breaker open count
+  - Stale cache fallback usage
+
 ### Security Features
 
 - Cache files secured with `0600` permissions
@@ -444,43 +466,17 @@ echo $GITHUB_PERSONAL_ACCESS_TOKEN
 
 ## Error Handling
 
-### Custom Exception Classes
+### Structured Exceptions
 
-The resolver uses structured exception types for precise error handling:
+The resolver provides precise error handling with HTTP status codes:
 
-```python
-from oci_vault_resolver import (
-    VaultResolverError,        # Base exception
-    SecretNotFoundError,       # Secret doesn't exist
-    PermissionDeniedError,     # IAM permission issue
-    AuthenticationError,       # Invalid credentials
-    InvalidVaultURLError,      # Malformed URL
-    ConfigurationError,        # Invalid config structure
-)
-
-try:
-    resolver = VaultResolver()
-    config = resolver.resolve_config(my_config)
-except SecretNotFoundError as e:
-    logger.error(f"Secret not found: {e.secret_id}")
-    # Fallback to default value or stale cache
-except PermissionDeniedError as e:
-    logger.error(f"Permission denied: {e.secret_id}")
-    # Check IAM policies
-except AuthenticationError as e:
-    logger.error(f"Auth failed: {e}")
-    # Verify OCI credentials
-```
-
-### HTTP Status Code Mapping
-
-| HTTP Status | Exception Type | Resolver Behavior |
-|-------------|----------------|-------------------|
-| 404 | `SecretNotFoundError` | Try stale cache fallback, then raise |
-| 401 | `AuthenticationError` | Raise immediately with clear message |
-| 403 | `PermissionDeniedError` | Raise with secret OCID for debugging |
-| 429 | `VaultResolverError` | Retry with exponential backoff |
-| 500+ | `VaultResolverError` | Fall back to stale cache |
+| HTTP Status | Error Type | Resolver Behavior |
+|-------------|------------|-------------------|
+| 404 | Secret not found | Try stale cache fallback, then error |
+| 401 | Authentication failed | Clear error message, exit |
+| 403 | Permission denied | Clear error message with OCID |
+| 429 | Rate limited | Retry with exponential backoff |
+| 500+ | Server error | Fall back to stale cache |
 
 ### Error Examples
 
@@ -507,65 +503,6 @@ When OCI Vault is temporarily unavailable, the resolver falls back to stale cach
 WARNING: OCI Vault fetch failed, using stale cached value for oci-vault://ocid1.vaultsecret.oc1.iad.xxx
 Successfully resolved 8/10 secret(s)
 WARNING: 2 secret(s) could not be resolved
-```
-
-## Logging and Observability
-
-### Professional Logging
-
-The resolver uses Python's `logging` module for structured output:
-
-```python
-from oci_vault_resolver import VaultResolver
-import logging
-
-# Configure logging level
-logging.basicConfig(
-    level=logging.INFO,  # or DEBUG, WARNING, ERROR
-    format='%(levelname)s: %(message)s'
-)
-
-# Create resolver with verbose mode
-resolver = VaultResolver(verbose=True)
-
-# Log output:
-# INFO: Found 5 vault reference(s) to resolve (parallel mode)
-# DEBUG: Fetching secret: ocid1.vaultsecret.oc1.iad.xxx
-# DEBUG: Successfully fetched: ocid1.vaultsecret.oc1.iad.xxx (took 0.523s)
-# INFO: Successfully resolved 5/5 secret(s)
-```
-
-### Performance Metrics
-
-Track resolution performance with built-in metrics:
-
-```python
-resolver = VaultResolver(verbose=True)
-config = resolver.resolve_config(my_config)
-
-# Metrics are automatically logged in verbose mode:
-# Performance metrics:
-#   Secrets fetched: 5
-#   Cache hit rate: 60.0%
-#   Cache hits: 3
-#   Cache misses: 2
-#   Stale cache used: 0
-#   Avg fetch time: 0.512s
-#   Total fetch time: 1.024s
-```
-
-### Programmatic Metrics Access
-
-```python
-# Access metrics programmatically
-resolver = VaultResolver()
-config = resolver.resolve_config(my_config)
-
-# Check performance
-print(f"Fetched {resolver.metrics['secrets_fetched']} secrets")
-print(f"Cache hit rate: {resolver.metrics['cache_hits']} / "
-      f"{resolver.metrics['cache_hits'] + resolver.metrics['cache_misses']}")
-print(f"Average fetch time: {resolver.metrics['total_fetch_time'] / resolver.metrics['secrets_fetched']:.3f}s")
 ```
 
 ## Troubleshooting

@@ -26,13 +26,29 @@ Main class for resolving OCI Vault references in configuration.
 #### Constructor
 
 ```python
-VaultResolver(cache_dir: Path = DEFAULT_CACHE_DIR, ttl: int = DEFAULT_TTL, verbose: bool = False)
+VaultResolver(
+    cache_dir: Path = DEFAULT_CACHE_DIR,
+    ttl: int = DEFAULT_TTL,
+    verbose: bool = False,
+    use_instance_principals: bool = False,
+    config_file: Optional[str] = None,
+    config_profile: str = "DEFAULT",
+    max_retries: int = 3,
+    enable_circuit_breaker: bool = True,
+    circuit_breaker_threshold: int = 5
+)
 ```
 
 **Parameters**:
 - `cache_dir` (Path): Directory for caching secrets. Default: `~/.cache/oci-vault-mcp`
 - `ttl` (int): Cache time-to-live in seconds. Default: `3600` (1 hour)
 - `verbose` (bool): Enable verbose logging to stderr. Default: `False`
+- `use_instance_principals` (bool): Use instance principal authentication (for OCI VMs). Default: `False`
+- `config_file` (Optional[str]): Path to OCI config file. Default: `~/.oci/config`
+- `config_profile` (str): OCI config profile to use. Default: `"DEFAULT"`
+- `max_retries` (int): Maximum retry attempts for API calls. Default: `3`
+- `enable_circuit_breaker` (bool): Enable circuit breaker pattern. Default: `True`
+- `circuit_breaker_threshold` (int): Failures before opening circuit. Default: `5`
 
 **Example**:
 ```python
@@ -46,6 +62,20 @@ resolver = VaultResolver()
 resolver = VaultResolver(
     cache_dir=Path("/custom/cache"),
     ttl=7200,  # 2 hours
+    verbose=True
+)
+
+# Production settings with resilience features
+resolver = VaultResolver(
+    verbose=True,
+    max_retries=5,
+    enable_circuit_breaker=True,
+    circuit_breaker_threshold=10
+)
+
+# Instance principal authentication (for OCI VMs)
+resolver = VaultResolver(
+    use_instance_principals=True,
     verbose=True
 )
 ```
@@ -122,50 +152,59 @@ secret = resolver.resolve_secret('oci-vault://invalid')  # Returns None
 ##### parse_vault_url
 
 ```python
-def parse_vault_url(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]
+def parse_vault_url(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[int]]
 ```
 
-Parse an `oci-vault://` URL into components.
+Parse an `oci-vault://` URL into components, including optional version number.
 
 **Parameters**:
-- `url` (str): Vault URL
+- `url` (str): Vault URL (supports version via query parameter: `?version=2`)
 
 **Returns**:
-- Tuple of (secret_ocid, compartment_id, secret_name)
-- Returns (None, None, None) if URL is invalid
+- Tuple of (secret_ocid, compartment_id, secret_name, version_number)
+- Returns (None, None, None, None) if URL is invalid
 
 **Examples**:
 ```python
 # Direct OCID
-ocid, comp, name = resolver.parse_vault_url('oci-vault://ocid1.vaultsecret.oc1...')
-# ('ocid1.vaultsecret.oc1...', None, None)
+ocid, comp, name, version = resolver.parse_vault_url('oci-vault://ocid1.vaultsecret.oc1...')
+# ('ocid1.vaultsecret.oc1...', None, None, None)
 
 # Compartment + name
-ocid, comp, name = resolver.parse_vault_url('oci-vault://ocid1.compartment.../secret-name')
-# (None, 'ocid1.compartment...', 'secret-name')
+ocid, comp, name, version = resolver.parse_vault_url('oci-vault://ocid1.compartment.../secret-name')
+# (None, 'ocid1.compartment...', 'secret-name', None)
 
 # Vault + name
-ocid, comp, name = resolver.parse_vault_url('oci-vault://ocid1.vault.../secret-name')
-# (None, 'ocid1.vault...', 'secret-name')
+ocid, comp, name, version = resolver.parse_vault_url('oci-vault://ocid1.vault.../secret-name')
+# (None, 'ocid1.vault...', 'secret-name', None)
+
+# With version parameter
+ocid, comp, name, version = resolver.parse_vault_url('oci-vault://ocid1.vaultsecret.oc1...?version=2')
+# ('ocid1.vaultsecret.oc1...', None, None, 2)
 ```
 
 ##### fetch_secret_by_ocid
 
 ```python
-def fetch_secret_by_ocid(self, secret_ocid: str) -> Optional[str]
+def fetch_secret_by_ocid(self, secret_ocid: str, version_number: Optional[int] = None) -> Optional[str]
 ```
 
-Fetch secret value from OCI Vault by secret OCID.
+Fetch secret value from OCI Vault by secret OCID, optionally specifying a version.
 
 **Parameters**:
 - `secret_ocid` (str): OCI Vault secret OCID
+- `version_number` (Optional[int]): Specific version to fetch (default: latest)
 
 **Returns**:
 - Optional[str]: Decrypted secret value, or None on error
 
 **OCI CLI Command**:
 ```bash
+# Latest version
 oci secrets secret-bundle get --secret-id <secret_ocid>
+
+# Specific version
+oci secrets secret-bundle get --secret-id <secret_ocid> --version-number 2
 ```
 
 **Example**:
