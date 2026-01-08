@@ -61,15 +61,14 @@ This document provides essential context for AI assistants working with the OCI 
 ├── requirements.txt         # Python dependencies: PyYAML, oci
 ├── example-config.yaml      # Example MCP configuration
 ├── test-mcp-config.yaml     # Test configuration with vault references
-└── Documentation/
-    ├── README.md
-    ├── QUICKSTART.md
-    ├── ARCHITECTURE.md
-    ├── API_REFERENCE.md
-    ├── SDK_IMPLEMENTATION.md
-    ├── CLAUDE_CODE_INTEGRATION.md
-    ├── CONTRIBUTING.md
-    └── CHANGELOG.md
+├── README.md                # Main user documentation
+├── QUICKSTART.md            # Quick start guide
+├── ARCHITECTURE.md          # System architecture diagrams
+├── API_REFERENCE.md         # Complete API documentation
+├── SDK_IMPLEMENTATION.md    # SDK implementation details
+├── CLAUDE_CODE_INTEGRATION.md  # Claude Code specific integration
+├── CONTRIBUTING.md          # Contribution guidelines
+└── CHANGELOG.md             # Version history
 ```
 
 ## Key Code Patterns
