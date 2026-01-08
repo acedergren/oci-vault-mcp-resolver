@@ -141,6 +141,9 @@ class VaultResolver:
                     if key.lower() == 'version':
                         try:
                             version_number = int(value)
+                            if version_number <= 0:
+                                self.log(f"Invalid version number (must be > 0): {value}")
+                                version_number = None
                         except ValueError:
                             self.log(f"Invalid version number: {value}")
 
