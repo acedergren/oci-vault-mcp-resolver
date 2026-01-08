@@ -146,6 +146,7 @@ class VaultResolver:
                                 version_number = None
                         except ValueError:
                             self.log(f"Invalid version number: {value}")
+                            print(f"Error: invalid version number in oci-vault URL: {value}", file=sys.stderr)
 
         parts = path.split('/')
 
