@@ -23,10 +23,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from oci_vault_resolver import VaultResolver, DEFAULT_CACHE_DIR, DEFAULT_TTL
 
 app = Flask(__name__)
-CORS(app)
+
+# Security: Restrict CORS to localhost only
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [
+            "http://127.0.0.1:5000",
+            "http://localhost:5000",
+            "http://127.0.0.1:*",
+            "http://localhost:*"
+        ]
+    }
+})
 
 # Configuration
-app.config['SECRET_KEY'] = os.urandom(24)
+# Security: Use environment variable for SECRET_KEY or generate a persistent one
+app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY') or os.urandom(24)
 app.config['CACHE_DIR'] = DEFAULT_CACHE_DIR
 app.config['CACHE_TTL'] = DEFAULT_TTL
 
@@ -109,13 +121,26 @@ MCP_CATALOG = [
 
 
 def run_command(cmd: List[str], capture_output=True) -> Dict[str, Any]:
-    """Run a shell command and return the result."""
+    """Run a shell command and return the result.
+    
+    Security: Only allows predefined safe commands (docker, oci).
+    """
+    # Security: Validate that command is from allowed list
+    allowed_commands = ['docker', 'oci']
+    if not cmd or cmd[0] not in allowed_commands:
+        return {
+            "success": False,
+            "error": f"Command not allowed. Only {', '.join(allowed_commands)} are permitted."
+        }
+    
     try:
+        # Security: shell=False prevents shell injection
         result = subprocess.run(
             cmd,
             capture_output=capture_output,
             text=True,
-            timeout=30
+            timeout=30,
+            shell=False
         )
         return {
             "success": result.returncode == 0,
@@ -209,12 +234,14 @@ def update_config():
         config_yaml = yaml.dump(config, default_flow_style=False, sort_keys=False)
         
         # Write to docker mcp
+        # Security: shell=False prevents shell injection
         result = subprocess.run(
             ['docker', 'mcp', 'config', 'write'],
             input=config_yaml,
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
+            shell=False
         )
         
         if result.returncode != 0:

@@ -78,8 +78,11 @@ Use environment variables:
 ```bash
 export MCP_WEB_HOST=0.0.0.0
 export MCP_WEB_PORT=8080
+export FLASK_SECRET_KEY="your-secret-key-here"  # Recommended for production
 ./start.sh
 ```
+
+**Security Note**: For production deployments, always set `FLASK_SECRET_KEY` to a secure random value to maintain session consistency across restarts.
 
 ## Docker Deployment
 
@@ -297,6 +300,7 @@ The web UI is built with:
 - Automatically secured on creation
 
 ### Network Security
+- **CORS restricted to localhost origins only** (127.0.0.1, localhost)
 - Default binding to 127.0.0.1 (localhost only)
 - Use `--host 0.0.0.0` only in trusted networks
 - Consider using a reverse proxy (nginx, Caddy) with HTTPS
@@ -305,6 +309,15 @@ The web UI is built with:
 - No built-in authentication (designed for trusted environments)
 - Recommended: Use behind VPN or with reverse proxy authentication
 - For production: Add OAuth2, OIDC, or basic auth via reverse proxy
+
+### Command Execution Security
+- **Command validation**: Only `docker` and `oci` commands allowed
+- **Shell injection prevention**: `shell=False` enforced on all subprocess calls
+- **Input sanitization**: XSS protection with HTML escaping on all user inputs
+
+### Session Security
+- **SECRET_KEY**: Set `FLASK_SECRET_KEY` environment variable for production
+- Random key generated if not set (sessions reset on restart)
 
 ### OCI Credentials
 - Never expose OCI config files via web UI

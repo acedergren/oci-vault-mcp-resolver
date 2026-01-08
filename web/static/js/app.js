@@ -9,6 +9,19 @@ let statusData = null;
 
 // ===== Utility Functions =====
 
+/**
+ * Sanitize HTML to prevent XSS attacks
+ */
+function escapeHtml(unsafe) {
+    if (typeof unsafe !== 'string') return unsafe;
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 function showNotification(title, message, type = 'info') {
     const container = document.getElementById('notification-container');
     const notification = document.createElement('div');
@@ -21,13 +34,17 @@ function showNotification(title, message, type = 'info') {
         info: 'fa-info-circle'
     };
     
+    // Security: Escape HTML to prevent XSS
+    const safeTitle = escapeHtml(title);
+    const safeMessage = escapeHtml(message);
+    
     notification.innerHTML = `
         <div class="notification-icon">
             <i class="fas ${icons[type]}"></i>
         </div>
         <div class="notification-content">
-            <div class="notification-title">${title}</div>
-            <div class="notification-message">${message}</div>
+            <div class="notification-title">${safeTitle}</div>
+            <div class="notification-message">${safeMessage}</div>
         </div>
     `;
     
@@ -193,12 +210,12 @@ function updateServersList(servers) {
                 <i class="fas fa-server"></i>
             </div>
             <div class="server-info">
-                <h3>${server.name}</h3>
-                <p>${server.description || 'MCP Server'}</p>
-                ${server.category ? `<span class="server-badge">${server.category}</span>` : ''}
+                <h3>${escapeHtml(server.name)}</h3>
+                <p>${escapeHtml(server.description || 'MCP Server')}</p>
+                ${server.category ? `<span class="server-badge">${escapeHtml(server.category)}</span>` : ''}
             </div>
             <div>
-                <button class="btn btn-sm btn-outline" onclick="viewServer('${server.name}')">
+                <button class="btn btn-sm btn-outline" onclick="viewServer('${escapeHtml(server.name)}')">
                     <i class="fas fa-eye"></i> View
                 </button>
             </div>
@@ -243,17 +260,17 @@ function renderMarketplace(servers) {
     const grid = document.getElementById('marketplace-grid');
     
     grid.innerHTML = servers.map(server => `
-        <div class="marketplace-card" onclick="showServerDetails('${server.id}')">
+        <div class="marketplace-card" onclick="showServerDetails('${escapeHtml(server.id)}')">
             <div class="marketplace-card-header">
                 <div class="marketplace-card-icon">
                     <i class="fas fa-${getServerIcon(server.category)}"></i>
                 </div>
                 <div class="marketplace-card-title">
-                    <h3>${server.name}</h3>
-                    <span class="marketplace-card-category">${server.category}</span>
+                    <h3>${escapeHtml(server.name)}</h3>
+                    <span class="marketplace-card-category">${escapeHtml(server.category)}</span>
                 </div>
             </div>
-            <p class="marketplace-card-description">${server.description}</p>
+            <p class="marketplace-card-description">${escapeHtml(server.description)}</p>
             <div class="marketplace-card-footer">
                 <div class="marketplace-card-tags">
                     ${server.requires_secrets ? '<span class="tag"><i class="fas fa-key"></i> Secrets</span>' : ''}
@@ -283,15 +300,15 @@ async function showServerDetails(serverId) {
         const modalBody = document.getElementById('modal-body');
         modalBody.innerHTML = `
             <div style="margin-bottom: 1rem;">
-                <h3 style="margin-bottom: 0.5rem;">${server.name}</h3>
-                <span class="marketplace-card-category">${server.category}</span>
+                <h3 style="margin-bottom: 0.5rem;">${escapeHtml(server.name)}</h3>
+                <span class="marketplace-card-category">${escapeHtml(server.category)}</span>
             </div>
             
-            <p style="margin-bottom: 1rem; color: var(--text-secondary);">${server.description}</p>
+            <p style="margin-bottom: 1rem; color: var(--text-secondary);">${escapeHtml(server.description)}</p>
             
             <div style="background: var(--bg-secondary); padding: 1rem; border-radius: var(--border-radius-sm); margin-bottom: 1rem;">
                 <h4 style="margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 600;">Docker Image</h4>
-                <code style="font-family: var(--font-mono); font-size: 0.875rem;">${server.image}</code>
+                <code style="font-family: var(--font-mono); font-size: 0.875rem;">${escapeHtml(server.image)}</code>
             </div>
             
             ${server.requires_secrets ? `
@@ -300,18 +317,18 @@ async function showServerDetails(serverId) {
                         <i class="fas fa-key"></i> Required Secrets
                     </h4>
                     <ul style="margin: 0; padding-left: 1.5rem;">
-                        ${server.requires_secrets.map(s => `<li>${s}</li>`).join('')}
+                        ${server.requires_secrets.map(s => `<li>${escapeHtml(s)}</li>`).join('')}
                     </ul>
                 </div>
             ` : ''}
             
             <div style="background: var(--bg-secondary); padding: 1rem; border-radius: var(--border-radius-sm);">
                 <h4 style="margin-bottom: 0.5rem; font-size: 0.875rem; font-weight: 600;">Configuration Template</h4>
-                <pre style="font-family: var(--font-mono); font-size: 0.8125rem; overflow-x: auto;">${JSON.stringify(server.config_template, null, 2)}</pre>
+                <pre style="font-family: var(--font-mono); font-size: 0.8125rem; overflow-x: auto;">${escapeHtml(JSON.stringify(server.config_template, null, 2))}</pre>
             </div>
         `;
         
-        document.getElementById('modal-title').textContent = `Install ${server.name}`;
+        document.getElementById('modal-title').textContent = `Install ${escapeHtml(server.name)}`;
         const actionBtn = document.getElementById('modal-action-btn');
         actionBtn.textContent = 'Add to Configuration';
         actionBtn.onclick = () => installServer(server);
@@ -364,9 +381,9 @@ function renderSecretsTable(secrets) {
         
         return `
             <tr>
-                <td><code style="font-family: var(--font-mono); font-size: 0.8125rem;">${secret.cache_key}</code></td>
-                <td>${formatTimestamp(secret.cached_at)}</td>
-                <td>${formatAge(secret.age_seconds)}</td>
+                <td><code style="font-family: var(--font-mono); font-size: 0.8125rem;">${escapeHtml(secret.cache_key)}</code></td>
+                <td>${escapeHtml(formatTimestamp(secret.cached_at))}</td>
+                <td>${escapeHtml(formatAge(secret.age_seconds))}</td>
                 <td>
                     <span class="tag" style="background: var(--${statusClass}-color); color: white;">
                         ${statusText}
