@@ -23,6 +23,7 @@ import argparse
 import asyncio
 import base64
 import json
+import logging
 import re
 import sys
 import time
@@ -39,6 +40,72 @@ except ImportError as e:
     print("ERROR: OCI SDK is required. Install with: pip install oci", file=sys.stderr)
     print(f"Import error: {e}", file=sys.stderr)
     sys.exit(1)
+
+
+# Custom Exceptions
+class VaultResolverError(Exception):
+    """Base exception for all VaultResolver errors."""
+
+    pass
+
+
+class AuthenticationError(VaultResolverError):
+    """Raised when OCI authentication fails."""
+
+    pass
+
+
+class SecretNotFoundError(VaultResolverError):
+    """Raised when a secret cannot be found in OCI Vault."""
+
+    def __init__(self, secret_id: str, compartment_id: Optional[str] = None):
+        """
+        Initialize SecretNotFoundError.
+
+        Args:
+            secret_id: The OCID or name of the secret
+            compartment_id: Optional compartment OCID where secret was searched
+        """
+        self.secret_id = secret_id
+        self.compartment_id = compartment_id
+        if compartment_id:
+            super().__init__(f"Secret '{secret_id}' not found in compartment {compartment_id}")
+        else:
+            super().__init__(f"Secret not found: {secret_id}")
+
+
+class PermissionDeniedError(VaultResolverError):
+    """Raised when the user lacks permission to access a secret."""
+
+    def __init__(self, secret_id: str):
+        """
+        Initialize PermissionDeniedError.
+
+        Args:
+            secret_id: The OCID of the secret that access was denied for
+        """
+        self.secret_id = secret_id
+        super().__init__(f"Permission denied for secret: {secret_id}")
+
+
+class InvalidVaultURLError(VaultResolverError):
+    """Raised when a vault URL is malformed."""
+
+    def __init__(self, url: str):
+        """
+        Initialize InvalidVaultURLError.
+
+        Args:
+            url: The malformed vault URL
+        """
+        self.url = url
+        super().__init__(f"Invalid vault URL format: {url}")
+
+
+class ConfigurationError(VaultResolverError):
+    """Raised when configuration is invalid or missing."""
+
+    pass
 
 
 # Configuration
@@ -83,6 +150,22 @@ class VaultResolver:
         self.verbose = verbose
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+        # Configure logging
+        self.logger = logging.getLogger(__name__)
+        if verbose:
+            self.logger.setLevel(logging.DEBUG)
+        else:
+            self.logger.setLevel(logging.INFO)
+
+        # Performance metrics
+        self.metrics = {
+            "secrets_fetched": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "stale_cache_used": 0,
+            "total_fetch_time": 0.0,
+        }
+
         # Initialize OCI clients
         try:
             if use_instance_principals:
@@ -102,12 +185,11 @@ class VaultResolver:
             self.log("OCI SDK clients initialized successfully")
 
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize OCI SDK clients: {e}")
+            raise AuthenticationError(f"Failed to initialize OCI SDK clients: {e}")
 
     def log(self, message: str) -> None:
         """Log message if verbose mode is enabled."""
-        if self.verbose:
-            print(f"[DEBUG] {message}", file=sys.stderr)
+        self.logger.debug(message)
 
     def parse_vault_url(self, url: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
@@ -162,6 +244,7 @@ class VaultResolver:
 
         if not cache_path.exists():
             self.log(f"Cache miss: {cache_key}")
+            self.metrics["cache_misses"] += 1
             return None
 
         try:
@@ -181,6 +264,7 @@ class VaultResolver:
                 self.log(f"Cache stale: {cache_key} (age: {age:.0f}s)")
             else:
                 self.log(f"Cache hit: {cache_key} (age: {age:.0f}s)")
+                self.metrics["cache_hits"] += 1
 
             return secret_value, is_stale
 
@@ -207,6 +291,7 @@ class VaultResolver:
 
     def fetch_secret_by_ocid(self, secret_ocid: str) -> Optional[str]:
         """Fetch secret value from OCI Vault by secret OCID using SDK."""
+        start_time = time.time()
         try:
             self.log(f"Fetching secret: {secret_ocid}")
 
@@ -217,28 +302,30 @@ class VaultResolver:
             content = response.data.secret_bundle_content.content
             decoded = base64.b64decode(content).decode("utf-8")
 
-            self.log(f"Successfully fetched: {secret_ocid}")
+            fetch_time = time.time() - start_time
+            self.metrics["secrets_fetched"] += 1
+            self.metrics["total_fetch_time"] += fetch_time
+            self.log(f"Successfully fetched: {secret_ocid} (took {fetch_time:.3f}s)")
             return decoded
 
         except oci.exceptions.ServiceError as e:
             # Structured exception handling
             if e.status == 404:
                 self.log(f"Secret not found: {secret_ocid}")
-                print(f"ERROR: Secret not found: {secret_ocid}", file=sys.stderr)
+                raise SecretNotFoundError(secret_ocid)
             elif e.status == 401:
                 self.log("Authentication failed")
-                print("ERROR: Authentication failed. Check OCI credentials.", file=sys.stderr)
+                raise AuthenticationError("Authentication failed. Check OCI credentials.")
             elif e.status == 403:
                 self.log(f"Permission denied for secret: {secret_ocid}")
-                print(f"ERROR: Permission denied for secret: {secret_ocid}", file=sys.stderr)
+                raise PermissionDeniedError(secret_ocid)
             else:
                 self.log(f"OCI API error: {e.message}")
-                print(f"ERROR: OCI API error: {e.message}", file=sys.stderr)
-            return None
+                raise VaultResolverError(f"OCI API error: {e.message}")
 
         except Exception as e:
             self.log(f"Error fetching secret: {e}")
-            print(f"ERROR: {e}", file=sys.stderr)
+            self.logger.error(f"Error fetching secret: {e}")
             return None
 
     def find_secret_by_name(self, compartment_id: str, secret_name: str) -> Optional[str]:
@@ -262,10 +349,11 @@ class VaultResolver:
 
         except oci.exceptions.ServiceError as e:
             self.log(f"OCI API error: {e.message}")
-            print(f"ERROR: {e.message}", file=sys.stderr)
+            self.logger.error(e.message)
             return None
         except Exception as e:
             self.log(f"Error searching for secret: {e}")
+            self.logger.error(f"Error searching for secret: {e}")
             return None
 
     def _try_stale_cache_fallback(
@@ -284,7 +372,8 @@ class VaultResolver:
         """
         if cached:
             value, _ = cached
-            print(f"WARNING: {reason}, using stale cached value for {vault_url}", file=sys.stderr)
+            self.metrics["stale_cache_used"] += 1
+            self.logger.warning(f"{reason}, using stale cached value for {vault_url}")
             return value
         return None
 
@@ -307,38 +396,92 @@ class VaultResolver:
         secret_ocid, compartment_id, secret_name = self.parse_vault_url(vault_url)
 
         if not secret_ocid and not secret_name:
-            print(f"ERROR: Invalid vault URL format: {vault_url}", file=sys.stderr)
+            self.logger.error(f"Invalid vault URL format: {vault_url}")
             return None
 
         # Resolve secret OCID if needed
         if not secret_ocid:
             if not compartment_id:
-                print(
-                    f"ERROR: No compartment specified for secret name: {secret_name}",
-                    file=sys.stderr,
-                )
+                self.logger.error(f"No compartment specified for secret name: {secret_name}")
                 return None
 
             # Type narrowing: we know secret_name is not None here
             assert secret_name is not None, "secret_name validated earlier"
             secret_ocid = self.find_secret_by_name(compartment_id, secret_name)
             if not secret_ocid:
-                print(
-                    f"ERROR: Secret not found: {secret_name} in compartment {compartment_id}",
-                    file=sys.stderr,
+                self.logger.error(
+                    f"Secret not found: {secret_name} in compartment {compartment_id}"
                 )
                 return self._try_stale_cache_fallback(cached, vault_url, "Secret not found")
 
         # Fetch secret value
-        secret_value = self.fetch_secret_by_ocid(secret_ocid)
-
-        if secret_value:
-            # Cache the result
-            self.cache_secret(cache_key, secret_value)
-            return secret_value
+        try:
+            secret_value = self.fetch_secret_by_ocid(secret_ocid)
+            if secret_value:
+                # Cache the result
+                self.cache_secret(cache_key, secret_value)
+                return secret_value
+        except (SecretNotFoundError, PermissionDeniedError, AuthenticationError) as e:
+            # Log structured error
+            self.logger.error(str(e))
+            # Fallback to stale cache
+            return self._try_stale_cache_fallback(cached, vault_url, str(e))
+        except VaultResolverError as e:
+            # Generic vault error
+            self.logger.error(str(e))
+            return self._try_stale_cache_fallback(cached, vault_url, "OCI Vault fetch failed")
 
         # Fallback to stale cache if fetch failed
         return self._try_stale_cache_fallback(cached, vault_url, "OCI Vault fetch failed")
+
+    def log_performance_metrics(self) -> None:
+        """Log performance metrics summary."""
+        cache_total = self.metrics["cache_hits"] + self.metrics["cache_misses"]
+        cache_hit_rate = (
+            (self.metrics["cache_hits"] / cache_total * 100) if cache_total > 0 else 0.0
+        )
+        avg_fetch_time = (
+            (self.metrics["total_fetch_time"] / self.metrics["secrets_fetched"])
+            if self.metrics["secrets_fetched"] > 0
+            else 0.0
+        )
+
+        self.logger.info("Performance metrics:")
+        self.logger.info(f"  Secrets fetched: {self.metrics['secrets_fetched']}")
+        self.logger.info(f"  Cache hit rate: {cache_hit_rate:.1f}%")
+        self.logger.info(f"  Cache hits: {self.metrics['cache_hits']}")
+        self.logger.info(f"  Cache misses: {self.metrics['cache_misses']}")
+        self.logger.info(f"  Stale cache used: {self.metrics['stale_cache_used']}")
+        self.logger.info(f"  Avg fetch time: {avg_fetch_time:.3f}s")
+        self.logger.info(f"  Total fetch time: {self.metrics['total_fetch_time']:.3f}s")
+
+    def validate_config(self, config: Any) -> None:
+        """
+        Validate configuration structure.
+
+        Args:
+            config: Configuration object to validate
+
+        Raises:
+            ConfigurationError: If configuration is invalid
+        """
+        if config is None:
+            raise ConfigurationError("Configuration cannot be None")
+
+        if not isinstance(config, dict):
+            raise ConfigurationError(
+                f"Configuration must be a dictionary, got {type(config).__name__}"
+            )
+
+        # Check for common config structures (MCP, Docker Compose, etc.)
+        if not config:
+            raise ConfigurationError("Configuration is empty")
+
+        # Validate that values are JSON-serializable
+        try:
+            json.dumps(config)
+        except (TypeError, ValueError) as e:
+            raise ConfigurationError(f"Configuration contains non-serializable values: {e}")
 
     def find_vault_references(self, obj: Any, path: str = "") -> Dict[str, str]:
         """
@@ -450,6 +593,9 @@ class VaultResolver:
 
         Returns: config with resolved secrets
         """
+        # Validate configuration structure
+        self.validate_config(config)
+
         # Find all vault references
         references = self.find_vault_references(config)
 
@@ -458,10 +604,7 @@ class VaultResolver:
             return config
 
         vault_urls = list(references.values())
-        print(
-            f"Found {len(references)} vault reference(s) to resolve (parallel mode)",
-            file=sys.stderr,
-        )
+        self.logger.info(f"Found {len(references)} vault reference(s) to resolve (parallel mode)")
 
         # Resolve all secrets in parallel
         try:
@@ -483,23 +626,32 @@ class VaultResolver:
                 self.set_nested_value(config, path, secret_value)
                 resolved_count += 1
             else:
-                print(f"ERROR: Failed to resolve {path}: {vault_url}", file=sys.stderr)
+                self.logger.error(f"Failed to resolve {path}: {vault_url}")
 
-        print(
-            f"Successfully resolved {resolved_count}/{len(references)} secret(s)", file=sys.stderr
-        )
+        self.logger.info(f"Successfully resolved {resolved_count}/{len(references)} secret(s)")
 
         if resolved_count < len(references):
-            print(
-                f"WARNING: {len(references) - resolved_count} secret(s) could not be resolved",
-                file=sys.stderr,
+            self.logger.warning(
+                f"{len(references) - resolved_count} secret(s) could not be resolved"
             )
+
+        # Log performance metrics if verbose
+        if self.verbose:
+            self.log_performance_metrics()
 
         return config
 
 
 def main() -> None:
     """CLI entry point for OCI Vault MCP Resolver."""
+    # Configure root logger for CLI usage
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s",
+        stream=sys.stderr,
+    )
+    logger = logging.getLogger(__name__)
+
     parser = argparse.ArgumentParser(
         description="Resolve OCI Vault references in Docker MCP Gateway configuration",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -583,16 +735,17 @@ Examples:
     try:
         config = yaml.safe_load(args.input)
     except yaml.YAMLError as e:
-        print(f"ERROR: Failed to parse YAML input: {e}", file=sys.stderr)
+        logger.error(f"Failed to parse YAML input: {e}")
         sys.exit(1)
 
     if not config:
-        print("ERROR: Empty or invalid YAML input", file=sys.stderr)
+        logger.error("Empty or invalid YAML input")
         sys.exit(1)
 
     # Initialize resolver with SDK
     if args.verbose:
-        print("Using OCI SDK (parallel resolution enabled)", file=sys.stderr)
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.info("Using OCI SDK (parallel resolution enabled)")
 
     try:
         resolver = VaultResolver(
@@ -604,7 +757,7 @@ Examples:
             config_profile=args.profile,
         )
     except Exception as e:
-        print(f"ERROR: Failed to initialize resolver: {e}", file=sys.stderr)
+        logger.error(f"Failed to initialize resolver: {e}")
         sys.exit(1)
 
     # Resolve secrets
@@ -614,7 +767,7 @@ Examples:
     try:
         yaml.dump(resolved_config, args.output, default_flow_style=False, sort_keys=False)
     except Exception as e:
-        print(f"ERROR: Failed to write YAML output: {e}", file=sys.stderr)
+        logger.error(f"Failed to write YAML output: {e}")
         sys.exit(1)
 
 

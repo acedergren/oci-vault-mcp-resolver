@@ -98,7 +98,7 @@ repos:
         name: Ensure test files match test_*.py
         args: [--pytest-test-first]
         files: ^tests/
-        exclude: 'tests/(README\.md|__init__\.py|conftest\.py)'
+        exclude: 'tests/(README\.md|INTEGRATION_TESTING\.md|__init__\.py|conftest\.py)'
 
   # Import Sorting
   - repo: https://github.com/PyCQA/isort

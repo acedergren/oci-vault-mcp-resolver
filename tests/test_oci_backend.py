@@ -63,10 +63,12 @@ class TestOCIBackend:
 
     def test_oci_client_initialization_failure(self, temp_cache_dir):
         """Test handling of OCI client initialization failure."""
+        from oci_vault_resolver import AuthenticationError
+
         with patch("oci_vault_resolver.oci.config.from_file") as mock_config:
             mock_config.side_effect = Exception("Config file not found")
 
-            with pytest.raises(RuntimeError, match="Failed to initialize OCI SDK clients"):
+            with pytest.raises(AuthenticationError, match="Failed to initialize OCI SDK clients"):
                 VaultResolver(
                     cache_dir=temp_cache_dir,
                     use_instance_principals=False,
@@ -111,14 +113,14 @@ class TestOCIBackend:
             headers={},
         )
 
-        # First call raises error, subsequent calls succeed
-        mock_secrets.get_secret_bundle.side_effect = [error, mock_bundle]
+        # First call raises error
+        mock_secrets.get_secret_bundle.side_effect = error
 
-        # SDK should handle retry internally (or fail gracefully)
-        result = resolver.fetch_secret_by_ocid("ocid1.vaultsecret.oc1.iad.test123")
+        # Should raise VaultResolverError for rate limiting
+        from oci_vault_resolver import VaultResolverError
 
-        # Should either succeed after retry or return None
-        assert result in [None, "success"]
+        with pytest.raises(VaultResolverError, match="OCI API error: Rate limited"):
+            resolver.fetch_secret_by_ocid("ocid1.vaultsecret.oc1.iad.test123")
 
     def test_network_error_handling(self, temp_cache_dir, mock_oci_clients):
         """Test handling of network errors."""
@@ -158,20 +160,24 @@ class TestOCIBackend:
 
     def test_instance_principal_auth_failure(self, temp_cache_dir):
         """Test handling of instance principal authentication failure."""
+        from oci_vault_resolver import AuthenticationError
+
         with patch(
             "oci_vault_resolver.oci.auth.signers.InstancePrincipalsSecurityTokenSigner"
         ) as mock_signer_class:
             mock_signer_class.side_effect = Exception("Unable to get instance principal token")
 
-            with pytest.raises(RuntimeError, match="Failed to initialize OCI SDK clients"):
+            with pytest.raises(AuthenticationError, match="Failed to initialize OCI SDK clients"):
                 VaultResolver(
                     cache_dir=temp_cache_dir,
                     use_instance_principals=True,
                     verbose=False,
                 )
 
-    def test_verbose_logging_enabled(self, temp_cache_dir, capsys):
+    def test_verbose_logging_enabled(self, temp_cache_dir, caplog):
         """Test that verbose mode logs OCI client initialization."""
+        import logging
+
         with patch("oci_vault_resolver.oci.config.from_file") as mock_config, patch(
             "oci_vault_resolver.SecretsClient"
         ) as mock_secrets_class, patch("oci_vault_resolver.VaultsClient") as mock_vaults_class:
@@ -180,7 +186,11 @@ class TestOCIBackend:
             mock_secrets_class.return_value = Mock()
             mock_vaults_class.return_value = Mock()
 
-            resolver = VaultResolver(cache_dir=temp_cache_dir, verbose=True)
+            with caplog.at_level(logging.DEBUG):
+                resolver = VaultResolver(cache_dir=temp_cache_dir, verbose=True)
 
-            captured = capsys.readouterr()
-            assert "OCI SDK clients initialized successfully" in captured.err
+            # Check that debug logging captured the initialization message
+            assert any(
+                "OCI SDK clients initialized successfully" in record.message
+                for record in caplog.records
+            )
