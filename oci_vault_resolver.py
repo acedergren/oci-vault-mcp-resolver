@@ -266,7 +266,7 @@ class VaultResolver:
 
         except oci.exceptions.ServiceError as e:
             # Structured exception handling
-            version_info = f" version {version_number}" if version_number else ""
+            version_info = f" (version {version_number})" if version_number else ""
             if e.status == 404:
                 self.log(f"Secret not found: {secret_ocid}{version_info}")
                 print(f"ERROR: Secret not found: {secret_ocid}{version_info}", file=sys.stderr)
