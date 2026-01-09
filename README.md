@@ -971,6 +971,14 @@ See [LICENSE](LICENSE) for full license text.
 
 ### Documentation
 
+📚 **[Full Documentation Site](https://yourusername.github.io/oci-vault-mcp-resolver/)** - Comprehensive documentation with search and auto-generated API reference
+
+**New Documentation:**
+- **[API Documentation](docs/API_DOCUMENTATION.md)** - Complete VaultResolver class reference with all methods and examples
+- **[Architecture Diagrams](docs/ARCHITECTURE_DIAGRAMS.md)** - System design with Mermaid diagrams (sequence flows, deployments)
+- **[User Guide](docs/USER_GUIDE.md)** - Step-by-step tutorials for all use cases (95.8% doc coverage ✅)
+
+
 **Getting Started:**
 - **Quick Start**: [QUICKSTART.md](QUICKSTART.md) - Get up and running in 5 minutes
 - **Installation**: Use `./scripts/install.sh` for automated setup

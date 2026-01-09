@@ -1,0 +1,95 @@
+name: Generate Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'oci_vault_resolver.py'
+      - 'wrappers/**'
+      - 'docs/**'
+      - 'config/**'
+      - '.github/workflows/generate-docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  generate-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install sphinx sphinx-rtd-theme myst-parser
+        pip install pdoc3 mkdocs mkdocs-material
+
+    - name: Generate API documentation with pdoc
+      run: |
+        mkdir -p docs/api
+        pdoc --html --output-dir docs/api \
+          --force \
+          --config show_source_code=False \
+          oci_vault_resolver.py
+
+    - name: Generate code documentation
+      run: |
+        python scripts/extract_docstrings.py > docs/API_REFERENCE.md
+
+    - name: Validate Mermaid diagrams
+      uses: mermaidjs/mermaid-cli-action@v1
+      with:
+        args: --version
+
+    - name: Check documentation coverage
+      run: |
+        python scripts/check_doc_coverage.py > docs/coverage-report.md
+
+    - name: Generate changelog from commits
+      run: |
+        git log --pretty=format:"- %s (%h)" $(git describe --tags --abbrev=0)..HEAD > docs/CHANGELOG_LATEST.md || true
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    - name: Build documentation site
+      run: |
+        mkdocs build
+
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: './site'
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+    - name: Comment PR with docs link
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      env:
+        REPO_OWNER: ${{ github.repository_owner }}
+        REPO_NAME: ${{ github.event.repository.name }}
+      with:
+        script: |
+          const { REPO_OWNER, REPO_NAME } = process.env;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `📚 Documentation preview: https://${REPO_OWNER}.github.io/${REPO_NAME}/`
+          })

@@ -1,0 +1,95 @@
+site_name: OCI Vault MCP Resolver
+site_description: Secure secrets management for Docker MCP Gateway using Oracle Cloud Infrastructure Vault
+site_author: OCI Vault MCP Resolver Contributors
+repo_url: https://github.com/yourusername/oci-vault-mcp-resolver
+repo_name: oci-vault-mcp-resolver
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+  - mermaid2
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  # Emoji support disabled due to YAML validation issues
+  # - pymdownx.emoji:
+  #     emoji_index: !!python/name:material.extensions.emoji.twemoji
+  #     emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: USER_GUIDE.md
+    - Installation: installation.md
+    - Configuration: configuration.md
+  - Architecture:
+    - Overview: ARCHITECTURE.md
+    - Diagrams: ARCHITECTURE_DIAGRAMS.md
+    - Security: security.md
+  - API Reference:
+    - Python API: API_DOCUMENTATION.md
+    - CLI Reference: cli-reference.md
+    - API Coverage: API_REFERENCE.md
+  - Integration:
+    - Docker MCP Gateway: DOCKER_MCP_INTEGRATION.md
+    - Remote SSH Deployment: deployment.md
+    - Multi-Environment: multi-environment.md
+  - Development:
+    - Contributing: CONTRIBUTING.md
+    - Testing: testing.md
+    - Coverage Report: coverage-report.md
+  - Reference:
+    - Naming Conventions: naming-conventions.md
+    - Troubleshooting: troubleshooting.md
+    - FAQ: faq.md
+    - Changelog: CHANGELOG_LATEST.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/yourusername/oci-vault-mcp-resolver
+  version:
+    provider: mike
+
+copyright: Copyright &copy; 2024 OCI Vault MCP Resolver Contributors
