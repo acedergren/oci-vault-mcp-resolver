@@ -45,10 +45,6 @@ jobs:
           --config show_source_code=False \
           oci_vault_resolver.py
 
-    - name: Generate code documentation
-      run: |
-        python scripts/extract_docstrings.py > docs/API_REFERENCE.md
-
     - name: Check documentation coverage
       run: |
         python scripts/check_doc_coverage.py > docs/coverage-report.md
